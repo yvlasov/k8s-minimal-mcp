@@ -1,0 +1,165 @@
+# Core resource table (PRD R2).
+#
+# Hardcoded GVK + aliases for the resource types kubectl users expect to
+# resolve instantly, without a per-context discovery round-trip. This table
+# wins ties against the discovery cache (resolution/discovery.py) but is not
+# the sole source of truth — CRDs and any resource absent here fall through
+# to per-context `kubectl api-resources` discovery (R2, R5).
+#
+# `verbs` lists which of the fixed MCP tool-verbs (get, logs, apply, patch,
+# delete, exec) are structurally supported by this resource type — used by
+# R8's pre-execution validation to fail fast with `verb_unsupported` instead
+# of surfacing a raw kubectl error. `logs` and `exec` apply only to pods.
+
+[[resource]]
+canonical = "pods"
+shortnames = ["po"]
+kind = "Pod"
+group = ""
+version = "v1"
+namespaced = true
+verbs = ["get", "logs", "apply", "patch", "delete", "exec"]
+
+[[resource]]
+canonical = "deployments"
+shortnames = ["deploy"]
+kind = "Deployment"
+group = "apps"
+version = "v1"
+namespaced = true
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "statefulsets"
+shortnames = ["sts"]
+kind = "StatefulSet"
+group = "apps"
+version = "v1"
+namespaced = true
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "replicasets"
+shortnames = ["rs"]
+kind = "ReplicaSet"
+group = "apps"
+version = "v1"
+namespaced = true
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "services"
+shortnames = ["svc"]
+kind = "Service"
+group = ""
+version = "v1"
+namespaced = true
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "persistentvolumes"
+shortnames = ["pv"]
+kind = "PersistentVolume"
+group = ""
+version = "v1"
+namespaced = false
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "persistentvolumeclaims"
+shortnames = ["pvc"]
+kind = "PersistentVolumeClaim"
+group = ""
+version = "v1"
+namespaced = true
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "configmaps"
+shortnames = ["cm"]
+kind = "ConfigMap"
+group = ""
+version = "v1"
+namespaced = true
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "secrets"
+shortnames = []
+kind = "Secret"
+group = ""
+version = "v1"
+namespaced = true
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "networkpolicies"
+shortnames = ["netpol"]
+kind = "NetworkPolicy"
+group = "networking.k8s.io"
+version = "v1"
+namespaced = true
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "ingresses"
+shortnames = ["ing"]
+kind = "Ingress"
+group = "networking.k8s.io"
+version = "v1"
+namespaced = true
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "nodes"
+shortnames = ["no"]
+kind = "Node"
+group = ""
+version = "v1"
+namespaced = false
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "namespaces"
+shortnames = ["ns"]
+kind = "Namespace"
+group = ""
+version = "v1"
+namespaced = false
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "jobs"
+shortnames = []
+kind = "Job"
+group = "batch"
+version = "v1"
+namespaced = true
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "cronjobs"
+shortnames = ["cj"]
+kind = "CronJob"
+group = "batch"
+version = "v1"
+namespaced = true
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "endpoints"
+shortnames = ["ep"]
+kind = "Endpoints"
+group = ""
+version = "v1"
+namespaced = true
+verbs = ["get"]
+
+[[resource]]
+canonical = "events"
+shortnames = ["ev"]
+kind = "Event"
+group = ""
+version = "v1"
+namespaced = true
+verbs = ["get"]

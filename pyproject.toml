@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "k8s-minimal-mcp"
+version = "0.1.0"
+description = "Minimal verb-based Kubernetes MCP server"
+readme = "PRD.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Iurii Vlasov" }]
+dependencies = [
+    "fastmcp>=0.2",
+    "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.14",
+]
+
+[project.scripts]
+k8s-mcp = "k8s_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/k8s_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,68 @@
+"""k_logs tool (PRD §6).
+
+GET logs from a pod.
+
+Required: context, pod
+Optional: namespace, container, tail, previous, since
+
+Default: tail=100. Response states the bound and whether truncation occurred.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from ..resolution import resolve, validate, DiscoveryCache
+from ..kubectl.runner import run_kubectl_checked
+from ..output import bound_logs, envelope
+
+
+def handle_logs(
+    context: str,
+    pod: str,
+    *,
+    namespace: str | None = None,
+    container: str | None = None,
+    tail: int | None = None,
+    previous: bool = False,
+    since: str | None = None,
+    discovery_cache: DiscoveryCache | None = None,
+) -> dict[str, Any]:
+    """Handle a k_logs call."""
+    # Pods are always in the core table
+    res = resolve(context, "pods", discovery_cache=discovery_cache)
+    if isinstance(res, dict) and "error" in res:
+        return envelope(res, context, "k_logs", success=False)
+
+    resource_meta = res
+
+    # Pre-execution validation (R8)
+    validation = validate(resource_meta, "logs", namespace)
+    if validation:
+        validation["context"] = context
+        return envelope(validation, context, "k_logs", success=False)
+
+    # Apply default tail=100 (PRD §6, R4)
+    effective_tail = tail if tail is not None else 100
+
+    # Build kubectl args
+    args = ["logs", pod]
+    if namespace:
+        args.extend(["-n", namespace])
+    if container:
+        args.extend(["-c", container])
+    if previous:
+        args.append("--previous")
+    if since:
+        args.extend(["--since", since])
+    args.extend(["--tail", str(effective_tail)])
+
+    # Execute
+    result = run_kubectl_checked(context, args)
+    if "error" in result:
+        return envelope(result, context, "k_logs", success=False)
+
+    # Apply bounding (R10 + R4)
+    bounded = bound_logs(result["stdout"], tail=effective_tail)
+
+    return envelope(bounded, context, "k_logs", success=True)

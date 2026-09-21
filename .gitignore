@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# uv
+uv.lock
+
+# Secrets / credentials
+.env
+.env.*
+*.pem
+*.key
+*.crt
+kubeconfig
+kubeconfig.*
+*.kubeconfig
+.kube/
+credentials.json
+*.token
+
+# Local agent-tool config (personal machine paths, local model server, local skill perms)
+opencode.json
+
+# Old pre-squash git history backup (never publish — see sibling backup bundle instead)
+.git.old-history-backup/
