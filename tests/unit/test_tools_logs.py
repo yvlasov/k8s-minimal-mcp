@@ -39,6 +39,16 @@ class TestHandleLogs:
 
     @patch("src.k8s_mcp.tools.logs.resolve")
     @patch("src.k8s_mcp.tools.logs.run_kubectl_checked")
+    def test_logs_output_format_none(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "log line 1"}
+
+        handle_logs("test-context", "mypod", namespace="default")
+
+        assert mock_run.call_args[1]["output_format"] is None
+
+    @patch("src.k8s_mcp.tools.logs.resolve")
+    @patch("src.k8s_mcp.tools.logs.run_kubectl_checked")
     def test_logs_explicit_tail(self, mock_run, mock_resolve, pod_meta):
         mock_resolve.return_value = pod_meta
         mock_run.return_value = {"stdout": "log line 1\nlog line 2"}

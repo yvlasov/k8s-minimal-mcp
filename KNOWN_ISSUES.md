@@ -271,3 +271,14 @@
 **Verified:** 226 tests pass (16 new tests added); nested-brace templates now fail fast with `{"error": "invalid_jsonpath_template", "jsonpath_template": "...", "detail": "Nested braces are not valid Kubernetes jsonpath syntax. For multiple fields per item use the bracket-list form... or a {range}...{end} loop."}` — `resolve()`/`run_kubectl_checked` never called.
 
 ---
+
+### 30. `k_logs` was completely broken — `kubectl` rejects the constructed command with `unknown shorthand flag: 'o' in -o`
+
+**File:** `src/k8s_mcp/tools/logs.py:61`
+**Severity:** High — every `k_logs` call failed, unconditionally. Reported live via a real MCP client session (a separately-deployed instance of this server), where two consecutive `k_logs` calls against different pods both failed identically. Since `k_logs` is one of the two most-used readonly tools, this was a total functional break of the tool, not an edge case.
+**Root cause:** `handle_logs()` called `run_kubectl_checked(context, args)` without overriding `output_format`, so it fell through to the function's default `output_format="json"` — producing `kubectl --context <ctx> -o json logs <pod> ...`. `kubectl logs` has no `-o`/`--output` flag at all (unlike `get`, which does) — `-o` is only valid there as a *shorthand* alias kubectl doesn't recognize on `logs`, hence the specific `unknown shorthand flag: 'o' in -o` error. This is the exact same class of bug Issue 8 fixed for `k_describe`/`k_exec` — `logs.py` was simply missed at the time and never caught since, because no test asserted what `output_format` value reached `run_kubectl_checked` (only the positional `args` were ever checked).
+**Fix:** `run_kubectl_checked(context, args, output_format=None)` — same fix shape as Issue 8, applied to the one tool module that fix pass missed.
+**Test:** Added `test_logs_output_format_none` to `tests/unit/test_tools_logs.py`, asserting `mock_run.call_args[1]["output_format"] is None` — same assertion style as `test_describe_output_format_none`/`test_exec_output_format_none`.
+**Verified:** confirmed directly in `logs.py`; the live report's cluster/pod/namespace details are not reproduced here — the bug is generic to any `k_logs` call, not specific to any cluster.
+
+---

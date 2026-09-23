@@ -57,8 +57,9 @@ def handle_logs(
         args.extend(["--since", since])
     args.extend(["--tail", str(effective_tail)])
 
-    # Execute
-    result = run_kubectl_checked(context, args)
+    # Execute — logs outputs a raw text stream, not JSON (output_format=None omits -o flag;
+    # `kubectl logs` doesn't accept -o at all, unlike get/apply/patch)
+    result = run_kubectl_checked(context, args, output_format=None)
     if "error" in result:
         return envelope(result, context, "k_logs", success=False)
 
