@@ -341,3 +341,30 @@ verbs = ["get"]
 - **R8** — fail fast before `resolve()`/kubectl, same placement as FR1's own `jsonpath_template`-required check.
 - **R11** — this stays on the correct side of the line: a narrow syntactic guard against one specific, proven mistake, not a grammar reimplementation.
 - **PRD §6** — remember to update the table's `k_get`/`k_apply`/`k_patch` rows when this ships, describing the new rejection and pointing to the correct syntax. This exact step has been forgotten twice already in this project's history (see `KNOWN_ISSUES.md` Issue 22); flagging explicitly here to try to break that pattern a third time.
+
+### FR9. `k_get_secret_to_file` — write a Secret's decoded content to a local file, never into model context
+
+**Motivation.** Every existing read tool (`k_get`, `k_describe`, `k_logs`) returns its content directly in the tool response, which becomes part of the model's context — logged, sent to the model provider, retained in conversation history. For most resources that's the whole point. For `Secret` resources it's a real exposure: credentials, tokens, and certificates would otherwise flow through the same path as a pod's name or a deployment's replica count. There is currently no way to inspect or export a Secret's decoded values through this server without putting them in front of the model. This FR adds a narrowly-scoped tool that decodes a Secret and writes it straight to a file on disk, returning only metadata (key names, file path) to the model — never values.
+
+**Proposed shape:**
+- New tool `k_get_secret_to_file`, **`admin`-only** access level (per explicit requirement) — added to `_VERB_MAP`'s `ADMIN` tier only, same tier `k_exec` occupies, not `readonly`/`readwrite`.
+- Required: `context`, `name` (secret name), `namespace` (Secrets are always namespaced — same R8 validation every namespaced resource already gets), `dst_secret_file` (mandatory — destination path on the **server's** local filesystem).
+- Implementation: `kubectl get secret <name> -n <namespace> -o json`, then base64-decode each key in `.data` (stdlib `base64`, no new dependency, consistent with R11's "shell out to kubectl, don't reimplement API communication" — decoding a wire-format encoding is not the same thing as reimplementing the API client), then write the decoded key/value map to `dst_secret_file` as JSON.
+- Response contains **only metadata** — key *names*, not values: `{"context": ..., "tool": "k_get_secret_to_file", "success": true, "written_to": dst_secret_file, "namespace": ..., "name": ..., "keys": ["username", "password"]}`. No `data` field, no value ever appears in the returned dict under any key.
+
+**Deliberate R1 exception — name this explicitly, don't let it slide by.** R1 says "tools map to verbs, not resource types" — this tool is resource-type-specific (`Secret` only) by design, the first exception to that rule in this project. The exception is justified because Secrets need genuinely different handling (content must never reach model context) that no other resource type requires — this isn't a slippery-slope opener for other resource-specific tools, it's a one-off carve-out for the one resource type where R1's normal generic-verb approach is actively the wrong shape.
+
+**Design decisions that need making before/during implementation, not silently assumed:**
+- **Path safety.** `dst_secret_file` is a caller (model)-supplied path written to by the server process — path traversal and "write outside intended directory" are real concerns for a tool whose whole purpose is handling sensitive material carefully. Needs an explicit decision: reject relative paths, restrict to a configured safe directory, or trust the admin-only access gate as sufficient? (`admin` already implies the operator trusts the model with `k_exec`-level capability, so this may be an acceptable-risk decision, but it should be a *decision*, not a default.)
+- **File permissions.** The written file should be created with restrictive permissions (e.g. `0600`) given its content — should not silently inherit the process umask.
+- **Overwrite behavior.** If `dst_secret_file` already exists: silently overwrite, refuse by default, or require an explicit `overwrite=true`? Given the sensitivity, refusing by default and requiring explicit opt-in to overwrite is the safer posture — but this is a call to make explicitly, not assume.
+- **Output file format.** A Secret's `data` map can have multiple keys (e.g. `username`+`password`). Proposed default: one JSON file `{"key1": "decoded_value1", ...}` — matches this project's existing structured-output conventions (vs. `.env`-style `KEY=value` lines, which is also reasonable and worth considering if the file is meant to be consumed by another tool expecting that shape).
+- **Scope boundary:** this tool only *gets* (reads Secret → writes file). A companion "apply from file" tool (read a file, patch/create a Secret from it, without the content ever passing through the model either) is a natural follow-up but explicitly out of scope for this FR unless requested separately — the name (`k_get_secret_to_file`) and the motivation above are both about reading, not writing.
+
+**Interaction with existing rules:**
+- **R1** — deliberate, named exception (see above).
+- **R7** — `admin`-only, added to `access.py`'s `_VERB_MAP` for that tier alone.
+- **R8** — standard namespaced-resource validation (namespace required) plus the new path-safety/overwrite checks above, all fail-fast before touching kubectl or the filesystem.
+- **R9** — does not apply; there's no JSON object returned to prune, the whole point is that structured content never reaches the response.
+- **R11** — kubectl still does all cluster communication; only the wire-format base64 decode happens in Python, not a parallel API client.
+- **Error contract (§7)** — needs new error cases beyond the existing `kubectl_failure`/`namespace_invalid`: a path-safety rejection, a file-already-exists-without-overwrite rejection, and a file-write failure (permission denied, parent directory missing) each need their own clear error code rather than a generic wrapped exception.

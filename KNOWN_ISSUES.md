@@ -1,5 +1,33 @@
 # Known Issues
 
+## FEATURE REQUESTS (not yet built)
+
+Distinct from `## OPEN`/`## FIXED` below, which track code defects — this section tracks
+proposed new capability. Full spec lives in PRD.md §15 / SPEC.md §8; this is a pointer plus
+implementation plan, not a duplicate of the full writeup.
+
+### FR9. `k_get_secret_to_file` — write a Secret's decoded content to a file, never into model context
+
+**Spec:** PRD.md §15 FR9, SPEC.md §8 FR9.
+**Why:** every existing read tool (`k_get`, `k_describe`, `k_logs`) returns content directly in the response, which becomes part of the model's context. For `Secret` resources that means credentials/tokens/certificates would flow through the same path as a pod name. This tool decodes a Secret and writes it straight to a file on disk, returning only key names and the file path to the model — never values.
+**Scope:** new tool, `admin`-only access level, required params `context`/`name`/`namespace`/`dst_secret_file` (mandatory destination path), optional `overwrite` (default `False`). Deliberately a *named exception* to R1 ("tools map to verbs, not resource types") — the one resource type (`Secret`) where R1's generic-verb shape is actively wrong, not a precedent for more resource-specific tools.
+
+**Implementation plan:**
+1. `errors.py` — add `unsafe_path()`, `file_exists()`, `file_write_failed()` error helpers, matching the existing `invalid_output`/`invalid_selector`/`invalid_jsonpath_template` shape.
+2. New `tools/get_secret_to_file.py` — fail-fast checks in order: `dst_secret_file` must be an absolute path (`unsafe_path` otherwise); if it already exists and `overwrite` isn't `True`, `file_exists`; standard R8 namespace validation (Secrets are always namespaced). Then: `kubectl get secret <name> -n <namespace> -o json`, base64-decode every key in `.data`, write as one JSON file using `os.open(..., os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)` (never a plain `open()` + later `chmod()` — that leaves a window where the file is briefly wider-permission than intended). Response: `{"written_to": ..., "keys": [...]}` — key names only, never values, anywhere in the returned dict.
+3. `access.py` — add `"get_secret_to_file"` to `_VERB_MAP`'s `ADMIN` tier only.
+4. `server.py` — register conditionally on admin access, same pattern as `k_exec`; tool description explicitly states values never appear in the response (a contract for the calling model, not just an implementation note).
+5. New `tests/unit/test_tools_get_secret_to_file.py` — happy path (assert actual file content, not just that a write happened); relative-path rejection; exists-without-overwrite rejection + overwrite-succeeds case; file mode is `0o600` (via `tmp_path`, not a mocked filesystem); filesystem-write-failure handling; standard `resolve()`/`validate()`/`kubectl_failure` passthrough; and one test that specifically searches the serialized response for the known test secret's plaintext value and asserts it's never present — the actual security property this tool exists for, not just "no `data` key happens to be there."
+
+**Open decisions to make explicitly before/during implementation (see PRD FR9 for full reasoning on each):**
+- Path safety beyond "must be absolute" — restrict to a configured safe directory, or trust the admin-only gate as sufficient?
+- Output file format — one JSON file (proposed default) vs. `.env`-style `KEY=value` lines.
+- Non-UTF-8 secret values — `errors="replace"` (simple, lossy for binary data) vs. a per-key flag for base64-passthrough.
+
+**Status:** not started — planning only, per PRD §15/SPEC §8.
+
+---
+
 ## OPEN (not yet fixed)
 
 None.

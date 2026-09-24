@@ -584,3 +584,87 @@ none — `envelope()` and `exec_failed()` already exist and cover both fixes).
     `run_kubectl_checked` never called (fail-fast, matching FR1's own test pattern); a
     valid multi-block template is NOT rejected (negative case, guards against the
     depth-check being over-eager).
+
+### FR9. `k_get_secret_to_file` (PRD §15 FR9)
+
+**Status: Not started.** The three "design decisions" flagged in PRD FR9 (path safety,
+overwrite behavior, output format) need explicit answers before or during implementation —
+this spec assumes a reasonable default for each so implementation isn't blocked, but flags
+each as a decision, not a silent given.
+
+- **`errors.py`:** add three new error codes/helpers, following the existing
+  `invalid_output`/`invalid_selector`/`invalid_jsonpath_template` shape:
+  - `ERROR_UNSAFE_PATH = "unsafe_path"` — `unsafe_path(context, path, *, detail=None)`.
+  - `ERROR_FILE_EXISTS = "file_exists"` — `file_exists(context, path)`.
+  - `ERROR_FILE_WRITE_FAILED = "file_write_failed"` — `file_write_failed(context, path, *, detail=None)`.
+- **New module `tools/get_secret_to_file.py`:**
+  ```python
+  def handle_get_secret_to_file(
+      context: str,
+      name: str,
+      namespace: str,
+      dst_secret_file: str,
+      *,
+      overwrite: bool = False,
+      discovery_cache: DiscoveryCache | None = None,
+  ) -> dict[str, Any]:
+  ```
+  - **Path-safety check (fail-fast, before anything else):** reject relative paths outright
+    (`os.path.isabs(dst_secret_file)` must be `True`) — this is the minimum bar regardless
+    of which stance PRD FR9's open question resolves to; a relative path's target depends on
+    the server process's CWD, which the caller has no visibility into, so it's never
+    meaningfully safe. Whether to additionally restrict to a configured allowlist directory
+    is the open question — implement the absolute-path check unconditionally, add a
+    directory allowlist only if that question resolves toward requiring one.
+  - **Overwrite check (fail-fast):** if `dst_secret_file` exists on disk and `overwrite` is
+    not `True`, return `file_exists`. Default `overwrite=False` matches PRD FR9's proposed
+    safer-by-default posture.
+  - Resolve `"secrets"` via `resolve()` (always in the core table) and run the standard R8
+    `validate()` namespace check — Secrets are namespaced, so this is unconditional, not
+    optional like `k_get`'s `all_namespaces` path.
+  - Fetch: `run_kubectl_checked(context, ["get", "secret", name, "-n", namespace], output_format="json")`
+    (this is a plain, explicit `-o json` fetch of one object — no need for `k_get`'s
+    name/output-format machinery here, this tool only ever fetches one Secret one way).
+  - Decode: `base64.b64decode(v).decode("utf-8", errors="replace")` for each key in the
+    fetched object's `.data` (note: `errors="replace"` rather than raising, since some
+    Secret values are legitimately binary/non-UTF-8 — decide at implementation time whether
+    non-UTF-8 values should instead be written base64-encoded-as-is with a per-key flag, or
+    whether `errors="replace"` silently corrupting binary content is acceptable given this
+    tool's primary use case is credential/config strings, not arbitrary binary blobs).
+  - Write: `json.dumps({key: decoded_value, ...})` to `dst_secret_file`, then
+    `os.chmod(dst_secret_file, 0o600)` immediately after creation (write via a mode that
+    never exposes a wider-permission window — e.g. open with `os.open(path, os.O_WRONLY |
+    os.O_CREAT | os.O_TRUNC, 0o600)` rather than plain `open()` + a separate `chmod()`
+    call, so the file is never briefly world-readable between creation and the permission
+    fix).
+  - On any filesystem error (permission denied, missing parent directory): catch and return
+    `file_write_failed(context, dst_secret_file, detail=str(e))`, not a raw traceback.
+  - Success response: `envelope({"written_to": dst_secret_file, "keys": list(decoded.keys())},
+    context, "k_get_secret_to_file", success=True)` — the `keys` list is the *only* place
+    any information about the Secret's shape appears in the response; no key ever maps to
+    a value anywhere in the returned dict.
+- **`access.py`:** add `"get_secret_to_file"` to `_VERB_MAP`'s `ADMIN` tier only (not
+  `READONLY`/`READWRITE`).
+- **`server.py`:** register `k_get_secret_to_file` conditionally on `"get_secret_to_file" in
+  allowed` (same pattern as `k_exec`'s admin-gated registration), with a tool description
+  that explicitly states values never appear in the response — this is as much a
+  documented contract for the calling model as an implementation detail.
+- **Tests:** new `tests/unit/test_tools_get_secret_to_file.py`:
+  - happy path: mocked kubectl JSON with a multi-key `.data` map → file written with
+    correctly decoded values (assert against the actual file content, not just that a
+    write call happened) → response contains `keys` but no value anywhere, `written_to`
+    matches the input path.
+  - relative `dst_secret_file` → `unsafe_path` error, kubectl never called.
+  - `dst_secret_file` already exists, `overwrite` not set → `file_exists` error, kubectl
+    never called; `overwrite=True` → succeeds and replaces the file.
+  - file permissions: assert the written file's mode is `0o600` (use `tmp_path` fixture,
+    not a mocked filesystem, so real `os.stat()` can verify this).
+  - filesystem write failure (e.g. point `dst_secret_file` at a non-existent parent
+    directory) → `file_write_failed`, not an unhandled exception.
+  - `resolve()`/`validate()`/`kubectl_failure` passthrough, matching every other tool's
+    error-propagation tests.
+  - **Negative test proving the actual security property:** assert that no test fixture's
+    known secret value ever appears as a substring anywhere in the returned response dict
+    (serialize the response and search for the plaintext value) — this is the property the
+    whole tool exists for, so it deserves its own explicit assertion, not just "the response
+    happens not to include a `data` key."
