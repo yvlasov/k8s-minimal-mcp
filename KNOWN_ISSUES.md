@@ -2,22 +2,7 @@
 
 ## OPEN (not yet fixed)
 
-### 32. `discovery.py`'s `refresh()` builds a redundant/conflicting `-o json` + `-o wide` kubectl invocation — suspected, not yet live-confirmed
-
-**File:** `src/k8s_mcp/resolution/discovery.py:73`
-**Severity:** Unconfirmed — likely low/harmless in practice, but undocumented and untested. Same bug *class* as Issues 8/30/31 (a call site relying on `run_kubectl`'s default `output_format="json"` when the subcommand doesn't want JSON), found by code reading after fixing those three, not by a live failure report — flagging honestly as lower-confidence than those.
-**Suspected root cause:** `refresh()` calls `run_kubectl(context, ["api-resources", "-o", "wide"])` without overriding `output_format`, so the default `output_format="json"` still applies, producing `kubectl --context <ctx> -o json api-resources -o wide` — two `-o` flags in one invocation. Unlike Issues 8/30/31 (where the subcommand accepts zero or a single fixed `-o` value, so the lone unwanted `-o json` was rejected outright), here a *second*, intentional `-o wide` follows it in `args`. kubectl's flag library (pflag) uses last-value-wins semantics for a repeated string flag, so `-o wide` likely silently overrides the leading `-o json` — which would also explain why Issues 27/28's live testing surfaced a *parsing* problem (bad regex) rather than a *command-rejected* problem: the command probably succeeded throughout, shaped by `-o wide` as intended, with the leading `-o json` silently discarded.
-
-**Plan — confirm before fixing:**
-1. Run `kubectl api-resources -o wide` normally, then `kubectl -o json api-resources -o wide` against any real cluster (or a local `kind`/`minikube`/`docker-desktop`) and diff the two outputs byte-for-byte.
-2. If identical: confirms last-value-wins, this has been cosmetic/harmless all along. If different, or if the second command errors: this is a live bug of the same severity as Issues 8/30/31 and should be re-filed as confirmed, not left at this severity.
-
-**Plan — fix (do regardless of step 1's outcome — relying on undocumented flag-override behavior is fragile either way):**
-1. `discovery.py:73` → `run_kubectl(context, ["api-resources", "-o", "wide"], output_format=None)` — makes the single intended `-o wide` explicit, removes the redundant/conflicting duplicate.
-2. Add a test to `tests/unit/test_discovery.py` asserting `run_kubectl` is called with `output_format=None`. This closes a real, separate gap: the file currently has **zero** assertions on what arguments/kwargs actually reach `run_kubectl` — only the mocked return value's `stdout`/`error` are ever checked — which is exactly the class of blind spot that let Issues 25-28 (and this one) go unnoticed for as long as they did.
-3. Run the full suite to confirm no regression.
-
-**Status:** open — not yet fixed, not yet empirically confirmed either way.
+None.
 
 ---
 
@@ -307,5 +292,17 @@
 **Fix:** `run_kubectl_checked(context, args, output_format=None)` at `delete.py:56` — same fix shape as Issues 8/30. Without `-o`, `kubectl delete` prints a plain-text confirmation (`deployment.apps/my-deploy deleted`), which the existing non-JSON fallback (`{"message": result["stdout"]}`) already handles — no other code change needed.
 **Test:** Added `test_delete_output_format_none` to `tests/unit/test_tools_delete.py`, asserting `mock_run.call_args[1]["output_format"] is None` — same assertion style as `test_logs_output_format_none` (Issue 30) and `test_describe_output_format_none`/`test_exec_output_format_none` (Issue 8).
 **Verified:** red/green check — the new test fails with `KeyError: 'output_format'` against the pre-fix code (the old call passed no `output_format` kwarg at all) and passes with the fix; 228/228 tests pass.
+
+---
+
+### 32. `discovery.py`'s `refresh()` built a redundant `-o json` + `-o wide` kubectl invocation — confirmed cosmetic (pflag last-value-wins), fixed
+
+**File:** `src/k8s_mcp/resolution/discovery.py:73`
+**Severity:** Low/cosmetic — live-confirmed harmless (see below). Same bug *class* as Issues 8/30/31 (a call site relying on `run_kubectl`'s default `output_format="json"` when the subcommand doesn't want JSON), found by code reading after fixing those three, not by a live failure report.
+**Root cause:** `refresh()` called `run_kubectl(context, ["api-resources", "-o", "wide"])` without overriding `output_format`, so the default `output_format="json"` produced `kubectl --context <ctx> -o json api-resources -o wide` — two `-o` flags in one invocation.
+**Confirmed live before fixing:** ran both invocations against a real cluster and diffed the outputs byte-for-byte — identical (256 lines each, both exit 0, `diff` exit 0). pflag's last-value-wins semantics apply: the trailing `-o wide` silently overrides the leading `-o json`, so the command has been working correctly all along, shaped by `-o wide` as intended. This also explains why Issues 27/28's live testing surfaced a *parsing* problem (bad regex) rather than a *command-rejected* problem. Cluster details not reproduced here — the behavior is generic to kubectl's flag parsing, not specific to any cluster.
+**Fix:** `run_kubectl(context, ["api-resources", "-o", "wide"], output_format=None)` — makes the single intended `-o wide` explicit, removes the redundant duplicate. Relying on undocumented flag-override behavior is fragile either way, so the fix stands regardless of the confirmation outcome.
+**Test:** Added `test_refresh_calls_run_kubectl_with_output_format_none` to `tests/unit/test_discovery.py`, asserting `run_kubectl` is called with `output_format=None` — closes the gap of zero assertions on what arguments/kwargs actually reach `run_kubectl` in that file (only the mocked return value's `stdout`/`error` were ever checked), the same class of blind spot that let Issues 25-28 (and this one) go unnoticed.
+**Verified:** 229/229 tests pass (228 + 1 new).
 
 ---

@@ -70,7 +70,9 @@ class DiscoveryCache:
 
         Returns list[ResourceMeta] on success, or an error dict on failure.
         """
-        result = run_kubectl(context, ["api-resources", "-o", "wide"])
+        # args already carry -o wide; output_format=None omits the default -o json
+        # (a duplicate -o flag is redundant — pflag last-value-wins makes it harmless but noisy)
+        result = run_kubectl(context, ["api-resources", "-o", "wide"], output_format=None)
 
         if result.get("error"):
             return result  # kubectl_failure dict

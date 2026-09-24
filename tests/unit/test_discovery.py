@@ -171,3 +171,11 @@ class TestDiscoveryCacheRefresh:
         assert len(result) > 0
         pods = next((r for r in result if r.canonical == "pods"), None)
         assert pods is not None
+
+    def test_refresh_calls_run_kubectl_with_output_format_none(self, mocker):
+        from src.k8s_mcp.resolution.discovery import DiscoveryCache
+        cache = DiscoveryCache()
+        fixture = _load_fixture()
+        mock_run = mocker.patch("src.k8s_mcp.resolution.discovery.run_kubectl", return_value={"stdout": fixture, "error": None})
+        cache.refresh("test-context")
+        mock_run.assert_called_once_with("test-context", ["api-resources", "-o", "wide"], output_format=None)
