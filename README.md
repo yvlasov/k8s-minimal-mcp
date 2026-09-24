@@ -13,11 +13,21 @@ Minimal verb-based Kubernetes MCP server. Replaces 200+ per-resource tools with 
 
 ## Installation
 
+### Option 1: Run directly with `uvx` (no clone needed)
+
 ```bash
+uvx --from git+https://github.com/yvlasov/k8s-minimal-mcp k8s-mcp --access-level readonly
+```
+
+### Option 2: Local development install
+
+```bash
+git clone https://github.com/yvlasov/k8s-minimal-mcp
+cd k8s-minimal-mcp
 pip install -e .
 ```
 
-Requires `kubectl` in `$PATH` with valid kubeconfig access.
+Either way, `kubectl` must be in `$PATH` with valid kubeconfig access.
 
 ## Usage
 
@@ -50,6 +60,27 @@ k8s-mcp --kubeconfig ~/.kube/config:~/.kube/other-config
 
 ### MCP Client Configuration
 
+**Via `uvx` (matches Installation Option 1 — no local clone needed):**
+
+```json
+{
+  "mcpServers": {
+    "k8s-minimal-mcp": {
+      "command": "uvx",
+      "args": [
+        "--from", "git+https://github.com/yvlasov/k8s-minimal-mcp",
+        "k8s-mcp",
+        "--access-level", "readonly",
+        "--allow-namespaces", "default,kube-system",
+        "--kubeconfig", "/path/to/kubeconfig"
+      ]
+    }
+  }
+}
+```
+
+**Via a local install (matches Installation Option 2 — `k8s-mcp` already on `$PATH`):**
+
 ```json
 {
   "mcpServers": {
@@ -73,6 +104,7 @@ k8s-mcp --kubeconfig ~/.kube/config:~/.kube/other-config
 | `k_logs` | Stream pod logs | readonly |
 | `k_describe` | Describe a resource | readonly |
 | `k_list_contexts` | List kubeconfig contexts | readonly |
+| `k_list_resources` | List available resource types (name, kind, api_version, namespaced, verbs) | readonly |
 | `k_apply` | Apply a manifest | readwrite |
 | `k_patch` | Patch a resource | readwrite |
 | `k_delete` | Delete resources | readwrite |
@@ -93,7 +125,8 @@ Core resources (pods, deployments, services, etc.) resolve from a static table. 
 ## Testing
 
 ```bash
-PYTHONPATH=. pytest tests/ -v
+uv sync --extra dev
+PYTHONPATH=. uv run pytest -v
 ```
 
 ## Architecture

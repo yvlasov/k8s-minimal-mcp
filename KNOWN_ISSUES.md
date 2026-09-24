@@ -2,7 +2,13 @@
 
 ## OPEN (not yet fixed)
 
-(None)
+### 31. `k_delete` is completely broken — kubectl rejects `-o json` with `unexpected -o output mode: json. We only support '-o name'`
+
+**File:** `src/k8s_mcp/tools/delete.py:56`
+**Severity:** High — every `k_delete` call fails unconditionally. Same class of bug as Issue 8 (`k_describe`/`k_exec`) and Issue 30 (`k_logs`), and apparently the one call site that pass missed: `delete.py` was not among the files touched by either fix.
+**Root cause:** `handle_delete()` calls `run_kubectl_checked(context, args)` without overriding `output_format`, so it falls through to the function's default `output_format="json"`, producing `kubectl --context <ctx> -o json delete <resource> <name> -n <namespace>`. `kubectl delete` has no `-o json` support at all — it only accepts `-o name` — so the command is rejected before it runs.
+**Reported live via a real MCP client session:** a `k_delete` call against a live cluster (context/resource/namespace details not reproduced here — the bug is generic to any `k_delete` call, not specific to any cluster, same as Issue 30) returned `kubectl_failure` with the exact error above. Verified via a follow-up `k_get` that the target resource was untouched — kubectl rejects the invalid flag before performing the delete, so this is a hard failure, not a silent partial success.
+**Suggested fix (same shape as Issues 8/30):** `run_kubectl_checked(context, args, output_format=None)` at `delete.py:56`.
 
 ---
 
