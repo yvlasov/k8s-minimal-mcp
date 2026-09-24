@@ -39,6 +39,16 @@ class TestHandleDelete:
 
     @patch("src.k8s_mcp.tools.delete.resolve")
     @patch("src.k8s_mcp.tools.delete.run_kubectl_checked")
+    def test_delete_output_format_none(self, mock_run, mock_resolve, deploy_meta):
+        mock_resolve.return_value = deploy_meta
+        mock_run.return_value = {"stdout": "deployment.apps/my-deploy deleted"}
+
+        handle_delete("test-context", "deployments", name="my-deploy", namespace="default")
+
+        assert mock_run.call_args[1]["output_format"] is None
+
+    @patch("src.k8s_mcp.tools.delete.resolve")
+    @patch("src.k8s_mcp.tools.delete.run_kubectl_checked")
     def test_delete_with_label_selector(self, mock_run, mock_resolve, deploy_meta):
         mock_resolve.return_value = deploy_meta
         mock_run.return_value = {"stdout": '{"kind": "DeleteOptions", "metadata": {}}'}

@@ -52,8 +52,9 @@ def handle_delete(
     if dry_run != "none":
         args.extend(["--dry-run", dry_run])
 
-    # Execute
-    result = run_kubectl_checked(context, args)
+    # Execute — delete outputs a plain-text confirmation, not JSON (output_format=None omits -o flag;
+    # `kubectl delete` only supports '-o name', unlike get/apply/patch)
+    result = run_kubectl_checked(context, args, output_format=None)
     if "error" in result:
         return envelope(result, context, "k_delete", success=False)
 
