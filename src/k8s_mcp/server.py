@@ -1,9 +1,9 @@
 """Server entrypoint (SPEC §4).
 
 Startup sequence:
-  1. Parse CLI args (--access-level, --allow-namespaces, --kubeconfig)
+  1. Parse CLI args (--access-level, --allow-namespaces)
   2. Load core resource table
-  3. Enumerate kubeconfig contexts
+  3. Enumerate kubeconfig contexts (kubectl's own default resolution — no --kubeconfig flag)
   4. Compute allowed verb set from access level
   5. Register only tools whose verb is in the allowed set (R7)
   6. Start FastMCP server
@@ -20,7 +20,7 @@ from typing import Any
 from fastmcp import FastMCP
 
 from .access import AccessLevel, allowed_verbs, tool_for_verb
-from .cli import parse_args, resolve_access_level, resolve_allow_namespaces, resolve_kubeconfig_paths
+from .cli import parse_args, resolve_access_level, resolve_allow_namespaces
 from .resolution import DiscoveryCache
 from .tools import (
     handle_get,
@@ -76,11 +76,10 @@ def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     access_level = resolve_access_level(args.access_level)
     allow_namespaces = resolve_allow_namespaces(args.allow_namespaces)
-    kubeconfig_paths = resolve_kubeconfig_paths(args.kubeconfig)
 
     # Configure logging
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    logger.info("Starting k8s-mcp server (access_level=%s, kubeconfig=%s)", access_level.value, kubeconfig_paths)
+    logger.info("Starting k8s-mcp server (access_level=%s)", access_level.value)
 
     # Discovery cache (R5)
     discovery_cache = DiscoveryCache()
@@ -94,7 +93,7 @@ def main(argv: list[str] | None = None) -> None:
     # Register k_list_contexts (always available)
     @app.tool(name="k_list_contexts")
     def list_contexts(context: str = "default") -> dict[str, Any]:
-        return handle_list_contexts(context, kubeconfig_paths=kubeconfig_paths)
+        return handle_list_contexts(context)
 
     # Register verb-based tools filtered by access level (R7)
     allowed = allowed_verbs(access_level)

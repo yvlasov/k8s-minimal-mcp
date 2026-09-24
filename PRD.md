@@ -145,7 +145,7 @@ Error codes: `ambiguous_resource`, `unknown_resource` (+ `suggestions`), `verb_u
 
 ## 9. Multi-Context Handling
 
-- Contexts sourced from kubeconfig (merged or separate files — see §13).
+- Contexts sourced from kubeconfig via kubectl's own default resolution (`$KUBECONFIG` env var, or `~/.kube/config`) — no server-level `--kubeconfig` flag; see §11's rejected-alternatives entry.
 - `k_list_contexts` exposes valid names cheaply; `unknown_context` errors also return the list.
 - Core table is static/shared; discovery cache is per-context.
 - Heterogeneous extensions (Cilium on one cluster, Istio elsewhere) need no server changes — CRDs surface automatically via per-context discovery and resolve through R2's second tier.
@@ -176,6 +176,7 @@ Rationale:
 | **MCP Resources layer** | Solves user-driven browse/attach, a different UX pattern from model-driven agentic debugging. Unused surface area here. |
 | **Domain toolsets** (Istio/Kiali, Tekton, KubeVirt, NetObserv) | Out of scope. If ever added, they go behind an opt-in `--toolsets` flag (Red Hat's pattern) so the core verb set never regresses to tool bloat. |
 | **Dedicated `k_events` tool** | `k_get resource="events"` + `field_selector=involvedObject.name=...,involvedObject.kind=...` already covers the primary use case (scoping events to one object) through the existing verb, no new tool needed. `kubectl events`'s only real edge — the `--for=<kind>/<name>` shorthand and chronological default ordering — wasn't judged worth a whole new model-visible tool (R1's tool-count discipline) for what's a convenience over an already-working `field_selector` query. Follow-up worth doing separately: add `events` to the R2 core table so `resource="events"` resolves instantly instead of falling through to per-context discovery. |
+| **Server-level `--kubeconfig` flag** (resolves §13's former "kubeconfig layout" open question) | Considered, implemented, then removed. In practice it was only ever wired into `k_list_contexts` — every other tool (`k_get`/`k_apply`/`k_patch`/`k_delete`/`k_describe`/`k_exec`/`k_logs`) and the discovery cache resolved `context` against kubectl's own default (`$KUBECONFIG`/`~/.kube/config`) regardless of what `--kubeconfig` was set to, since `run_kubectl()` never threaded it through (see `KNOWN_ISSUES.md` Issues 33/34). Fixing that properly meant adding a `kubeconfig` parameter to every tool handler plus the runner — real surface-area cost for a flag whose only legitimate use case (multiple separate kubeconfig files) kubectl's own `$KUBECONFIG` env var already solves without any server involvement. Decision: drop the flag; rely entirely on kubectl's own default kubeconfig resolution, same as every other kubectl-wrapping tool in this project already assumes (R11's "shell out to kubectl" already implies inheriting its config resolution, not reimplementing a parallel one). Simpler, smaller, and removes a whole class of "which file did this actually use" confusion. |
 
 ## 12. Success Criteria
 
@@ -188,7 +189,6 @@ Rationale:
 ## 13. Open Questions
 
 - [ ] **Ship `k_describe` at all?** Red Hat didn't implement it despite native API access, shipping `get` + `events` instead. Its output is verbose unstructured text — worst context-per-useful-byte of any candidate tool. Dropping it also removes R11's primary justification, reopening native-vs-subprocess on cleaner grounds.
-- [ ] Kubeconfig layout — single merged config vs. separate files per context.
 - [ ] `k_exec` in v1, or deferred given risk profile even at `admin`?
 - [ ] Which kinds warrant `status` retention by default under R9 (pods/deployments clearly; the general rule for CRDs with `conditions` is less clear).
 - [ ] Discovery cache refresh trigger: TTL only, on-miss-retry only, or both.
@@ -271,7 +271,7 @@ Both should be **fixed as part of this FR**, before or alongside writing the cor
 - `tests/unit/test_tools_describe.py` — args built as `describe <resource> <name>` with `output_format=None` (no `-o` flag); optional `namespace` adds `-n`; **note and lock in as a regression test** the existing quirk that `validate()` is called with verb `"get"`, not `"describe"` (`describe.py:34`) — document this as intentional-or-not in the test's own naming/comment so a future reader isn't left guessing; `resolve()`/`validate()`/kubectl error passthrough; success shape `{"output": stdout}`.
 - `tests/unit/test_tools_logs.py` — default `tail=100` applied when `tail` is `None`; explicit `tail` overrides the default; `previous`/`since`/`container` each add their respective flag; `bound_logs()` truncation reporting when line count exceeds `tail`; `resolve()`/`validate()`/kubectl error passthrough.
 - `tests/unit/test_tools_exec.py` — **written against the fixed arg order** (`-c <container>` before `--`, command after); `command` (a list) is appended verbatim after `--`; `output_format=None` (no `-o` flag, matches `describe`); the `exec_failed` vs. generic `kubectl_failure` error-shape branch (`exec_.py:53-66`) — both paths need a case; success shape `{"stdout", "stderr", "exit_code"}`.
-- `tests/unit/test_tools_contexts.py` — **written against the fixed error-surfacing behavior**: a `list_kubeconfig_contexts()` error propagates as a visible error in the response rather than silently becoming an empty list; `kubeconfig_paths=None` defaults to `[]`; happy path returns the enumerated contexts via `envelope_list_contexts`.
+- `tests/unit/test_tools_contexts.py` — **written against the fixed error-surfacing behavior**: a `list_kubeconfig_contexts()` error propagates as a visible error in the response rather than silently becoming an empty list; `kubeconfig_paths=None` defaults to `[]`; happy path returns the enumerated contexts via `envelope_list_contexts`. (Superseded: `kubeconfig_paths` no longer exists — see §11's rejected `--kubeconfig` flag entry and `KNOWN_ISSUES.md` Issues 33/34. This bullet is left as historical record of what FR4 originally built, not a live spec.)
 
 **Interaction with existing rules:** no new rule interactions — this is closing a test-coverage gap on already-specified behavior (§6), not proposing new behavior, aside from the two bug fixes above which restore already-documented behavior (`k_exec`'s `container` param, §6, was always supposed to work; `k_list_contexts` errors should be as visible as every other tool's per the shared error contract, §7).
 

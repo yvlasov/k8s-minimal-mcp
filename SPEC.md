@@ -34,7 +34,7 @@ k8s-minimal-mcp/
 │   └── k8s_mcp/
 │       ├── __init__.py
 │       ├── server.py              # entrypoint: FastMCP app, startup flags, tool registration (R7)
-│       ├── cli.py                 # argparse: --access-level, --allow-namespaces, --kubeconfig
+│       ├── cli.py                 # argparse: --access-level, --allow-namespaces
 │       │
 │       ├── tools/                 # one module per verb — thin, delegates to core/
 │       │   ├── __init__.py
@@ -61,7 +61,7 @@ k8s-minimal-mcp/
 │       │
 │       ├── contexts/              # kubeconfig handling
 │       │   ├── __init__.py
-│       │   └── kubeconfig.py      # enumerate contexts, resolve --kubeconfig path(s), PRD §13 open Q
+│       │   └── kubeconfig.py      # enumerate contexts via kubectl's own default resolution (no --kubeconfig flag, PRD §11)
 │       │
 │       ├── output/                # R4, R9, R10 — response shaping, applied uniformly at the boundary
 │       │   ├── __init__.py
@@ -130,9 +130,9 @@ Pre-execution validation (R8 — namespaced/cluster-scoped check, verb-support c
 
 ## 4. Startup Sequence (`server.py`)
 
-1. Parse CLI args (`cli.py`): `--access-level {readonly,readwrite,admin}` (default `readonly`), `--allow-namespaces` (comma list, empty = all), `--kubeconfig` path(s).
+1. Parse CLI args (`cli.py`): `--access-level {readonly,readwrite,admin}` (default `readonly`), `--allow-namespaces` (comma list, empty = all). No `--kubeconfig` flag — see PRD §11.
 2. Load core resource table (`resolution/core_table.py` reads `data/core_resources.toml`).
-3. Enumerate kubeconfig contexts (`contexts/kubeconfig.py`) — fail fast if none found.
+3. Enumerate kubeconfig contexts (`contexts/kubeconfig.py`, via kubectl's own default kubeconfig resolution) — fail fast if none found.
 4. Compute allowed verb set from access level (`access.py`).
 5. Register only the tools whose verb is in the allowed set (R7) — conditional `@app.tool` registration, not runtime rejection.
 6. Start FastMCP server.
@@ -188,7 +188,6 @@ Loaded once at startup into `list[ResourceMeta]`. Discovery-cache entries (`reso
 Matching PRD §13, this spec does not resolve:
 
 - Whether `k_describe` ships (module exists either way; registration is conditional).
-- Single merged kubeconfig vs. multiple files (`contexts/kubeconfig.py` should support both via `--kubeconfig` accepting a colon-separated list, matching `kubectl`'s own env var convention, without committing to one now).
 - Whether `k_exec` ships at `admin` or is deferred further.
 - Discovery cache refresh trigger (TTL-only vs. TTL+on-miss — spec assumes both per §7 pseudocode, but this is not locked).
 
@@ -442,6 +441,14 @@ in the repo (`ResourceMeta` fixture, `@patch` on `..tools.<module>.resolve` and
   calling `list_kubeconfig_contexts`; happy path wraps the enumerated contexts via
   `envelope_list_contexts` — assert the exact shape that helper produces (check
   `output/envelope.py`) rather than assuming.
+
+  **Superseded note:** the `kubeconfig_paths` parameter described in this FR4 entry (and in
+  `list_kubeconfig_contexts(kubeconfig_paths)`'s signature above) was removed entirely —
+  see PRD §11's rejected-alternatives entry and `KNOWN_ISSUES.md` Issues 33/34.
+  `handle_list_contexts(context)` and `list_kubeconfig_contexts()` now both take no
+  kubeconfig-path argument at all; resolution is left to kubectl's own default behavior.
+  Left this FR4 text as-is otherwise since it's a historical record of what was actually
+  built at the time, not a live spec.
 
 No changes to `errors.py`/`output/` needed beyond what the two bug fixes require (likely
 none — `envelope()` and `exec_failed()` already exist and cover both fixes).

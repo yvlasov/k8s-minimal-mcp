@@ -306,3 +306,26 @@ None.
 **Verified:** 229/229 tests pass (228 + 1 new).
 
 ---
+
+### 33. `--kubeconfig` was silently ignored by every tool except `k_list_contexts` — resolved by removing the flag entirely, not by threading it through
+
+**File:** `src/k8s_mcp/kubectl/runner.py`, `src/k8s_mcp/cli.py`, `src/k8s_mcp/server.py`, `src/k8s_mcp/contexts/kubeconfig.py`, `src/k8s_mcp/tools/contexts.py`
+**Severity:** High as originally found. Discovered by reading previously-unaudited code (`cli.py`, `runner.py`), not a live report.
+**Root cause:** `run_kubectl()`/`run_kubectl_checked()` built `base_args = ["kubectl", "--context", context]` and never included `--kubeconfig`, regardless of what the server was started with. `server.py`'s `main()` resolved `--kubeconfig` into `kubeconfig_paths` and threaded it into exactly one place — `handle_list_contexts(...)`. Every other tool (`k_get`, `k_apply`, `k_patch`, `k_delete`, `k_describe`, `k_exec`, `k_logs`) and the discovery cache's own `kubectl api-resources` call resolved `context` against whatever kubeconfig `kubectl` found by default in the server process's own environment instead — a correctness/safety risk if a context name collided across files pointing at different clusters.
+**Resolution — decided against the originally-planned fix:** the plan drafted here was to add a `kubeconfig` parameter to `runner.py` and thread it through every tool handler plus `_dispatch()`. Instead, the decision was made to **remove `--kubeconfig` entirely** rather than fix the plumbing — see PRD.md §11's rejected-alternatives entry for the full reasoning (in short: the flag was only ever wired into one tool in practice, fixing that properly meant real surface-area cost across every handler, and the flag's only legitimate use case — multiple separate kubeconfig files — is already solved by kubectl's own `$KUBECONFIG` env var without any server involvement).
+**Changes:** removed `--kubeconfig` from `cli.py` (and the now-unused `resolve_kubeconfig_paths()`); removed `kubeconfig_paths` threading from `server.py`; `contexts/kubeconfig.py`'s `list_kubeconfig_contexts()` now takes no arguments and runs a single `kubectl config get-contexts -o name` relying on kubectl's own default resolution, matching how every other tool call in this project already behaves; `tools/contexts.py`'s `handle_list_contexts()` simplified to match. README/PRD/SPEC updated to match (PRD §11 rejected-alternatives entry, PRD §13's former "kubeconfig layout" open question resolved and removed, SPEC's startup-sequence and module-layout references updated).
+**Test:** removed the now-invalid `TestResolveKubeconfigPaths` class and `test_custom_kubeconfig` from `test_cli.py`; updated `test_tools_contexts.py`'s calls to match the no-argument signature; added `tests/unit/test_kubeconfig.py` (new file — `list_kubeconfig_contexts()` had zero direct tests before, every caller mocked it away) covering the happy path, confirming no `--kubeconfig` flag is ever passed to kubectl, empty output, non-zero exit, and `kubectl`-not-found.
+**Verified:** 229 tests pass (224 after removing 5 obsolete tests, +5 new in `test_kubeconfig.py`).
+
+---
+
+### 34. `list_kubeconfig_contexts()` didn't merge contexts across multiple `--kubeconfig` paths — resolved by removing multi-path support entirely, same decision as Issue 33
+
+**File:** `src/k8s_mcp/contexts/kubeconfig.py`
+**Severity:** Medium as originally found — narrower blast radius than Issue 33 (only affected `k_list_contexts`'s own output), but contradicted the feature's own advertised purpose (README documented `--kubeconfig file1:file2` as valid multi-file usage; the implementation only ever returned the first file's contexts).
+**Root cause:** the function looped through `kubeconfig_paths` one at a time, invoking `kubectl --kubeconfig <single-path> config get-contexts -o name` separately per file, and returned as soon as the first path yielded any non-empty result — silently discarding every other path's contexts. Also architecturally backwards: kubectl's own convention for colon-separated `--kubeconfig` values is one merged invocation, not per-file looping with a winner-takes-all return.
+**Resolution:** moot by the same decision as Issue 33 — `--kubeconfig` (and therefore the multi-path case this issue was about) no longer exists. `list_kubeconfig_contexts()` now takes no path argument at all and runs a single invocation against kubectl's own default resolution. The dead first-line `args` assignment noted while investigating this was removed as part of the same rewrite.
+**Test:** `tests/unit/test_kubeconfig.py` (new file, added for Issue 33) covers the simplified function directly — this closes the "zero test coverage" gap originally flagged here, even though the multi-path merge logic itself no longer exists to test.
+**Verified:** 229/229 tests pass.
+
+---

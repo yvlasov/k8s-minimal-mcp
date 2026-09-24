@@ -21,12 +21,12 @@ class TestHandleListContexts:
         assert result["data"]["count"] == 3
 
     @patch("src.k8s_mcp.tools.contexts.list_kubeconfig_contexts")
-    def test_list_contexts_kubeconfig_paths_normalized(self, mock_list, tmp_path):
+    def test_list_contexts_calls_with_no_args(self, mock_list, tmp_path):
         mock_list.return_value = ["context1"]
 
-        handle_list_contexts("test-context", kubeconfig_paths=None)
+        handle_list_contexts("test-context")
 
-        mock_list.assert_called_once_with([])
+        mock_list.assert_called_once_with()
 
     @patch("src.k8s_mcp.tools.contexts.list_kubeconfig_contexts")
     def test_list_contexts_error_surfaced(self, mock_list, tmp_path):
@@ -48,10 +48,3 @@ class TestHandleListContexts:
         assert result["data"]["contexts"] == []
         assert result["data"]["count"] == 0
 
-    @patch("src.k8s_mcp.tools.contexts.list_kubeconfig_contexts")
-    def test_list_contexts_custom_kubeconfig_paths(self, mock_list, tmp_path):
-        mock_list.return_value = ["context1"]
-
-        handle_list_contexts("test-context", kubeconfig_paths=["/path/to/kubeconfig"])
-
-        mock_list.assert_called_once_with(["/path/to/kubeconfig"])

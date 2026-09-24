@@ -8,7 +8,6 @@ from src.k8s_mcp.cli import (
     parse_args,
     resolve_access_level,
     resolve_allow_namespaces,
-    resolve_kubeconfig_paths,
 )
 
 
@@ -17,7 +16,6 @@ class TestParseArgs:
         args = parse_args([])
         assert args.access_level == "readonly"
         assert args.allow_namespaces == ""
-        assert args.kubeconfig is not None
 
     def test_custom_access_level(self):
         args = parse_args(["--access-level", "admin"])
@@ -26,10 +24,6 @@ class TestParseArgs:
     def test_custom_allow_namespaces(self):
         args = parse_args(["--allow-namespaces", "default,kube-system"])
         assert args.allow_namespaces == "default,kube-system"
-
-    def test_custom_kubeconfig(self):
-        args = parse_args(["--kubeconfig", "/path/to/config"])
-        assert args.kubeconfig == "/path/to/config"
 
     def test_invalid_access_level(self):
         with pytest.raises(SystemExit):
@@ -65,15 +59,3 @@ class TestResolveAllowNamespaces:
     def test_with_spaces(self):
         result = resolve_allow_namespaces(" default , kube-system ")
         assert result == ["default", "kube-system"]
-
-
-class TestResolveKubeconfigPaths:
-    def test_single(self):
-        assert resolve_kubeconfig_paths("/path/to/config") == ["/path/to/config"]
-
-    def test_multiple_colon_separated(self):
-        result = resolve_kubeconfig_paths("/path/a:/path/b:/path/c")
-        assert result == ["/path/a", "/path/b", "/path/c"]
-
-    def test_empty(self):
-        assert resolve_kubeconfig_paths("") == []

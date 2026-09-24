@@ -45,9 +45,6 @@ k8s-mcp --access-level admin
 
 # Restrict to specific namespaces
 k8s-mcp --allow-namespaces default,kube-system
-
-# Custom kubeconfig path(s), colon-separated
-k8s-mcp --kubeconfig ~/.kube/config:~/.kube/other-config
 ```
 
 ### CLI Reference
@@ -56,7 +53,10 @@ k8s-mcp --kubeconfig ~/.kube/config:~/.kube/other-config
 |------|---------|-------------|
 | `--access-level` | `readonly` | `{readonly, readwrite, admin}` — gates mutating tools |
 | `--allow-namespaces` | *(empty)* | Comma-separated namespace allowlist; empty = all |
-| `--kubeconfig` | `~/.kube/config` | Path(s) to kubeconfig, colon-separated |
+
+There is no `--kubeconfig` flag — kubeconfig resolution is left entirely to
+kubectl's own default behavior (`$KUBECONFIG` env var, or `~/.kube/config`).
+Set `$KUBECONFIG` before starting the server if you need a non-default file.
 
 ### MCP Client Configuration
 
@@ -71,8 +71,7 @@ k8s-mcp --kubeconfig ~/.kube/config:~/.kube/other-config
         "--from", "git+https://github.com/yvlasov/k8s-minimal-mcp",
         "k8s-mcp",
         "--access-level", "readonly",
-        "--allow-namespaces", "default,kube-system",
-        "--kubeconfig", "/path/to/kubeconfig"
+        "--allow-namespaces", "default,kube-system"
       ]
     }
   }
@@ -88,8 +87,7 @@ k8s-mcp --kubeconfig ~/.kube/config:~/.kube/other-config
       "command": "k8s-mcp",
       "args": [
         "--access-level", "readonly",
-        "--allow-namespaces", "default,kube-system",
-        "--kubeconfig", "/path/to/kubeconfig"
+        "--allow-namespaces", "default,kube-system"
       ]
     }
   }
