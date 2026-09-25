@@ -48,7 +48,8 @@ k8s-minimal-mcp/
 │       │   ├── exec_.py           # k_exec (trailing underscore: `exec` is a builtin)
 │       │   ├── contexts.py        # k_list_contexts
 │       │   ├── list_resources.py  # k_list_resources (FR3)
-│       │   └── get_secret_to_file.py  # k_get_secret_to_file (FR9, admin-only, named R1 exception)
+│       │   ├── get_secret_to_file.py  # k_get_secret_to_file (FR9, admin-only, named R1 exception)
+│       │   └── get_helm_release.py    # k_get_helm_release (FR12, readonly, named R1 exception — see Issue 39, values unredacted)
 │       │
 │       ├── resolution/            # R2, R5, R6 — resource name -> GVK
 │       │   ├── __init__.py
@@ -91,7 +92,8 @@ k8s-minimal-mcp/
 │   │   ├── test_bounding.py       # R10 defaults + R4 reporting shape
 │   │   ├── test_access.py         # R7 registration filtering per level
 │   │   ├── test_errors.py         # §7 error contract shape for each code
-│   │   └── test_prompts.py        # FR11: exact resource=/field-path string assertions per prompt
+│   │   ├── test_prompts.py        # FR11: exact resource=/field-path string assertions per prompt
+│   │   └── test_tools_get_helm_release.py  # FR12: decode-chain, revision-selection, redaction-gap coverage
 │   ├── integration/
 │   │   └── test_tools_against_kind.py  # optional: real kubectl against a kind/minikube cluster
 │   └── fixtures/
@@ -806,7 +808,7 @@ the cluster, so validating a namespace that's never used for access would be the
 
 ### FR12. `k_get_helm_release` (PRD §15 FR12)
 
-**Status: Implemented, unit-tested, and committed** (`tests/unit/test_tools_get_helm_release.py`, 12 tests; full suite 289 passed). Helm v3's storage format (labels
+**Status: Implemented, unit-tested, and committed** (`98a4c14`; `tests/unit/test_tools_get_helm_release.py`, 13 tests — corrected from an earlier "12" miscount; full suite 289 passed). Helm v3's storage format (labels
 `owner=helm,name=<release>,version=<revision>`, `.data.release` = `base64(gzip(json))`)
 confirmed accurate (2026-09-25) against standard, publicly-documented Helm v3 architecture.
 The proposed direct-fetch bypass of Issue 35's Secret redaction confirmed to mirror
@@ -843,11 +845,15 @@ new kind of exception.
   corrupted → `helm_release_decode_failed` with the matching `stage` and real exception text
   in `detail`; `include_manifest=False` (default) omits `.manifest`; `True` includes it.
 
-**Decision needed before implementation:** whether the decoded `values` block should get
-Issue 35-style redaction (a chart's `values.yaml` can carry plaintext credentials a chart
-author put there, even though it isn't a Kubernetes `Secret` object by the API's own type
-system) — flagged, not resolved here, the same way FR9's Decisions section resolved
-Secret-specific questions before writing code rather than after.
+**Shipped without resolving this — now `KNOWN_ISSUES.md` Issue 39 (open, real exposure):**
+whether the decoded `values` block should get Issue 35-style redaction (a chart's
+`values.yaml` can carry plaintext credentials a chart author put there, even though it isn't
+a Kubernetes `Secret` object by the API's own type system). `get_helm_release.py` returns
+`"values": data.get("values", {})` verbatim — no redaction call, no key-name-only reduction
+like `prune()`'s Secret handling, no test asserting any redaction behavior. This is the one
+point where the implementation deviates from its own plan: every other item here was
+resolved before or during implementation; this one was left open in the plan and then never
+revisited when the code shipped.
 
 ### FR13. `k_auth_can_i` (PRD §15 FR13)
 
@@ -858,6 +864,13 @@ exit code 1/"denied" would be misclassified as `kubectl_failure` if routed throu
 `_checked`) is accurate, and the proposed workaround (call `run_kubectl` directly) is
 necessary, not overcautious. `kubectl auth can-i`'s 0/1/other exit-code convention confirmed
 accurate to standard kubectl behavior.
+
+**Tool-count constraint (checked against current `main`, post-FR12):** PRD §12 caps
+`admin`-visible tools at 12; current count is 11 (6 `readonly` + 3 `readwrite` + 2
+`admin`-only). This tool registers at `readonly` per the plan below, so it stacks into
+`admin` too — bringing the total to exactly 12/12 with no headroom left. Not a blocker, but
+re-check the actual count at implementation time (it may have moved again) before adding
+anything else.
 
 - **New module `tools/auth_can_i.py`:**
   - Single-check: build args in order `["auth", "can-i", verb, resource_with_name] +

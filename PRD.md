@@ -94,6 +94,7 @@ All tools take `context` (kubeconfig context name) as a required input parameter
 | `k_delete` | `resource` | `name`, `namespace`, `label_selector`, `dry_run` | N/A — same | readwrite |
 | `k_exec` | `pod`, `command` | `namespace`, `container` | N/A | admin |
 | `k_get_secret_to_file` | `name`, `namespace`, `dst_secret_file` | `overwrite` | N/A — response contains only key names and the destination path, never values. Deliberate, named R1 exception (§15 FR9) — resource-specific by design, `Secret`-only. | admin |
+| `k_get_helm_release` | `release`, `namespace` | `revision`, `include_manifest` | N/A — bounded decoded summary by default; full rendered manifest only on explicit `include_manifest=True`. Decoded `values` returned **unredacted** — a known, unresolved gap tracked as `KNOWN_ISSUES.md` Issue 39, not a deliberate design choice. Second named R1 exception (§15 FR12) — resource-specific by design, Helm-release-`Secret`-only. | readonly |
 
 Supporting tools:
 
@@ -188,6 +189,13 @@ Rationale:
 - Tokens consumed per resolved debugging task ≤ 40% of the 222-tool baseline being replaced.
 - Zero wrong-context mutations across a scripted multi-context test scenario.
 - Ambiguous-resource calls (`networkpolicy` on a Cilium cluster) never silently resolve to the wrong API group.
+
+**Status against current `main` (2026-09-25), post-FR12:**
+- **Tool count:** met, but tight — 6 tools at `readonly`, 11 at `admin` (limit 12). FR13 (§15), planned at `readonly`, would bring `admin` to exactly 12/12 if shipped as specced — zero headroom left for anything after that without either raising this limit or retiring a tool.
+- **Ambiguous-resource / wrong-API-group criterion:** met now, but was **actually violated** for a real period — this is precisely what `KNOWN_ISSUES.md` Issue 38 was (`nodes` vs. `metrics.k8s.io`'s `NodeMetrics` silently executing against the core object because the resolved `group` was discarded before reaching kubectl). Fixed and re-verified; flagging the connection here since Issue 38's own entry doesn't cite this criterion explicitly.
+- **CRUD coverage of an arbitrary CRD with zero server-side changes:** architecturally still holds — FR9/FR11/FR12 added tools/prompts without special-casing any CRD type; the two-tier resolution (core table + discovery cache) is unchanged. Not independently re-verified against a live cluster.
+- **Token budget ≤40%:** unmeasured — §10's own instrumentation step was never built, so this remains an open item, not a regression.
+- **Zero wrong-context mutations:** structurally enforced by R3 (no default `context`, no session state) across every tool; no dedicated named multi-context test scenario exists as its own artifact, but every handler test exercises distinct `context` values and asserts correct echo.
 
 ## 13. Open Questions
 
@@ -419,7 +427,7 @@ verbs = ["get"]
 **Interaction with existing rules:**
 - **R9/Issue 35** — this tool fetches the Secret directly via the kubectl runner, the same pattern FR9's `k_get_secret_to_file` already established, rather than through `k_get`'s `prune()` path — so it legitimately bypasses the generic Secret-redaction hard block instead of being blocked by it. Not a second exception to Issue 35's posture; a second instance of the same already-established pattern (fetch Secrets directly when the tool's whole purpose requires seeing the content).
 - **R11** — the three-stage decode (base64 → gzip → json) is a wire-format decode, not a parallel Helm client; kubectl still does all cluster communication.
-- **Open question, not resolved here:** whether the decoded `values` block needs its own redaction — a chart's `values.yaml` can carry plaintext credentials a chart author put there, even though it isn't a Kubernetes `Secret` object by the API's own type system. Flagged as a real security-shape decision for the implementer, not assumed either way.
+- **Shipped without resolving this — now tracked as `KNOWN_ISSUES.md` Issue 39 (open):** whether the decoded `values` block needs its own redaction — a chart's `values.yaml` can carry plaintext credentials a chart author put there, even though it isn't a Kubernetes `Secret` object by the API's own type system. The implementation returns `values` verbatim with no redaction of any kind, and no test or status note flagged that this open question had gone unaddressed. This is a real, live exposure, not a hypothetical — see Issue 39 for severity and proposed resolutions.
 
 ### FR13. `k_auth_can_i` — thin wrapper over `kubectl auth can-i` for RBAC effective-permission checks
 
@@ -427,6 +435,8 @@ verbs = ["get"]
 
 **Proposed shape:**
 - New read-only tool `k_auth_can_i(context, verb=None, resource=None, name=None, namespace=None, as_user=None, as_group=None, list_all=False)`. Single-check mode returns `{"allowed": true|false}` plus the literal command run; `list_all=True` runs `kubectl auth can-i --list` and returns `{"permissions": {"<resource>": ["<verb>", ...]}}`.
+
+**§12 tool-count constraint, checked against current `main`:** this tool would be the 7th `readonly` tool and, since `readonly` tools stack into `admin`, would bring `admin`'s count to exactly 12/12 (§12's stated ceiling) — no violation, but zero headroom remains after this ships. Worth confirming at implementation time that the count is still accurate (FR9/FR12 both landed since this constraint was last checked) and flagging in the PR if anything else is bundled alongside it.
 
 **Interaction with existing rules:**
 - **R11** — thin passthrough to kubectl's own authorization computation, no client-side RBAC re-derivation.

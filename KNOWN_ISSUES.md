@@ -73,7 +73,9 @@ SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the 
 
 **Verified (2026-09-25), before promotion into PRD/SPEC:** Helm v3's storage format (labels, base64+gzip+json encoding) confirmed accurate to standard, publicly-documented Helm v3 architecture. The proposed direct-fetch bypass of Issue 35's redaction confirmed to mirror `get_secret_to_file.py`'s existing, already-shipped pattern exactly — not a new kind of exception.
 
-**Status:** implemented, unit-tested, and committed (`tests/unit/test_tools_get_helm_release.py`, 12 tests; full suite 289 passed).
+**Status:** implemented, unit-tested, and committed (`98a4c14`; `tests/unit/test_tools_get_helm_release.py`, 13 tests — corrected from an earlier "12" miscount; full suite 289 passed).
+
+**Verified against plan (2026-09-25):** implementation matches the plan on every structural point (errors, `prune()`-bypass, label-based lookup, decode-chain discipline with real exception text per stage, response shape, access gating, registration). **Deviates from the plan on the one point it explicitly flagged as needing a decision**: the plan's "whether `values` needs Issue-35-style redaction" question was shipped unresolved — `values` is returned fully unredacted, with no note anywhere in the status reporting that this open item had gone unaddressed. Logged as new Issue 39 (OPEN, high severity) below, not silently absorbed into the "implemented" status.
 
 ---
 
@@ -85,13 +87,26 @@ SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the 
 
 **Verified (2026-09-25), before promotion into PRD/SPEC:** confirmed against `kubectl/runner.py:108-109` — `run_kubectl_checked` treats any non-zero exit as an error with no special-casing, so the proposal's claimed workaround is correct and necessary, not overcautious. `kubectl auth can-i`'s 0/1 exit-code convention confirmed accurate.
 
+**Tool-count flag (2026-09-25):** current `admin`-visible tool count is 11/12 (PRD §12's ceiling). This tool registers at `readonly` and would stack into `admin`, bringing the total to exactly 12/12 — met, but zero headroom left after. Re-check the actual count at implementation time before shipping this alongside anything else.
+
 **Status:** proposed, not started.
 
 ---
 
 ## OPEN (not yet fixed)
 
-_None — all previously open issues are fixed._
+### 39. `k_get_helm_release` returns a chart's `values` block fully unredacted — the pre-implementation decision to address this was never made
+
+**File:** `src/k8s_mcp/tools/get_helm_release.py:169`
+**Severity:** High — a real, currently-shipping exposure, not a hypothetical, and worse than Issue 35's original gap because it was *explicitly flagged as a decision to make* (PRD.md §15 FR12, SPEC.md §8 FR12) before implementation, and then shipped with that decision simply never made. A Helm chart's `values.yaml` commonly carries plaintext credentials, API keys, or connection strings a chart author put there (e.g. a database password set via `--set db.password=...` or a `values-prod.yaml` overlay) — `k_get_helm_release(context, release, namespace)` returns all of it verbatim in the model-facing response, fully readable, at `readonly` access level (not even gated to `admin` the way `k_get_secret_to_file` is for the exact same class of risk).
+**Root cause:** `get_helm_release.py:169` — `"values": data.get("values", {})`, no filtering, masking, or opt-in gate of any kind. No call to `prune()`, no key-name-only reduction like `output/pruning.py:68-73`'s Secret handling. No test in `tests/unit/test_tools_get_helm_release.py` asserts any redaction behavior on `values` — confirming this isn't a tested-then-regressed gap, it was never addressed at all.
+**Why this happened:** the implementation plan (SPEC.md §8 FR12) explicitly named this as an open decision — "whether the decoded `values` block should get Issue 35-style redaction" — the same pattern FR9's Decisions section used to resolve Secret-specific questions *before* writing code. For FR12, the question was asked but the answer was never supplied; the code shipped as if the answer were "no redaction," without that ever being a deliberate call.
+**Proposed fix — needs an explicit decision, not assumed here:**
+- **Option A (hard block, matches Issue 35's precedent):** `values` redacted to `{"redacted_keys": [...]}` by default, with an explicit `include_values=True` param required to see them — mirrors `k_get`'s Secret posture exactly, safest default.
+- **Option B (raise the access gate):** move `k_get_helm_release` from `readonly` to `admin` in `access.py`'s `_VERB_MAP`, matching `k_get_secret_to_file`'s precedent of gating by risk rather than by verb. Simpler (no new param), but over-broad if most charts' `values` genuinely carry nothing sensitive — it would gate legitimate low-risk uses (chart version/status checks) behind `admin` too.
+- **Option C (heuristic key-name scanning for likely-secret-shaped keys):** rejected preemptively — fragile, false-negative-prone, and the kind of client-side reimplementation R11's "shell out, don't reimplement" spirit already argues against for structurally similar problems.
+- Recommend A or B; A is more precise (doesn't over-gate legitimately low-risk lookups) but adds a param; B is zero-code-change but blunt. Flagging both rather than picking one unilaterally, matching this project's own established practice of naming real security-shape decisions explicitly (FR9's Decisions section, this same FR12 entry's original open question) rather than defaulting into an answer.
+**Proposed test:** whichever option is chosen, a test asserting the actual security property (values containing a known plaintext secret string never appear anywhere in the serialized response, or the tool is unreachable below `admin`) — the same rigor `test_secret_values_never_appear_in_response` already established for FR9, not just "a `redacted_keys` field happens to be present."
 
 ---
 
@@ -108,6 +123,7 @@ _None — all previously open issues are fixed._
 
 ### 38. Resolved `group`-qualification is discarded before reaching kubectl — canonical-name collisions (`nodes` vs. `metrics.k8s.io`'s `NodeMetrics`, and `pods`/`events` similarly) silently execute against the wrong API group
 
+**PRD §12 cross-reference (added 2026-09-25):** this issue was a real, live violation of a named project-level success criterion — PRD.md §12's "Ambiguous-resource calls... never silently resolve to the wrong API group." Not just an internal code defect; the project's own stated success bar was unmet for the period this was open. Now met again, re-confirmed via §12's own status annotation (added alongside this note).
 **File:** `src/k8s_mcp/tools/get.py:96`, `delete.py:44`, `describe.py:40`, `patch.py:72`
 **Fix:** Replaced `resource_meta.canonical` with `resource_meta.fully_qualified_name` in all four tools when building the kubectl resource argument. `fully_qualified_name` collapses to plain `canonical` when `group == ""` (zero behavior change for core-table entries) and returns `f"{canonical}.{group}"` when `group` is set, which is valid `kubectl get TYPE.GROUP` syntax.
 **Test:** Added 8 tests across `tests/unit/test_tools_get.py`, `test_tools_delete.py`, `test_tools_describe.py`, `test_tools_patch.py` (`TestHandleGetFullyQualifiedResource`, `TestHandleDeleteFullyQualifiedResource`, `TestHandleDescribeFullyQualifiedResource`, `TestHandlePatchFullyQualifiedResource`) — each asserts that groupful resources produce `fully_qualified_name` in kubectl args, and groupless resources produce plain `canonical`.
@@ -325,6 +341,8 @@ _None — all previously open issues are fixed._
 **Recurred a third and fourth time (2026-09-25):** PRD §6's `k_apply` row shipped with `src_file` in the Required column formatted identically to genuinely-both-required rows (`manifest`, `src_file`), reading as AND when the actual requirement is XOR — corrected to `` `manifest` or `src_file` (exactly one) ``. Separately, the *same class* of drift showed up in SPEC.md rather than PRD.md this time: §8's FR10 section header was left reading "Status: Not started" after the feature shipped, contradicting KNOWN_ISSUES.md's own "implemented" claim for the same feature — also corrected. Neither was caught until an explicit verification pass; this pattern is not self-correcting and has now recurred four times across two different documents.
 
 **Recurred a fifth time (2026-09-25), a new flavor — stale open-decision text, not a stale status line:** FR11 shipped with its namespace-validation question actually resolved in code (no `--allow-namespaces` check, since prompts perform no cluster access), but both PRD.md §15 and SPEC.md §8's "decision needed"/"open question" blurbs were left reading as unresolved — now closed out to state what was actually decided. Also found in the same pass: SPEC.md §2's Module Layout tree and §4's Startup Sequence were never updated for FR11's new `prompts.py` module or its registration step — now added. Same underlying process gap as the four recurrences above (nothing forces a doc touch in the same change that ships a feature), just manifesting as an un-updated decision/structure block instead of an un-updated status/table row.
+
+**Recurred a sixth and seventh time (2026-09-25):** FR12 shipped with `get_helm_release.py`/`test_tools_get_helm_release.py` absent from SPEC.md §2's Module Layout tree (sixth) and with no row for `k_get_helm_release` in PRD.md §6's Tool Specification table (seventh) — the latter a real gap, not a non-issue, since FR12 is a genuine tool (unlike FR11's prompts, which are correctly exempt from §6). Both now added. Separately, the FR12 status write-up's own test count was wrong ("12" vs. the actual 13, confirmed by running the suite) — a small factual-accuracy lapse in the same status text this pattern keeps drifting in, not a new category of drift but worth naming. FR12 also produced a materially more serious variant of this same "shipped without closing the loop" failure mode — see Issue 39 — where a flagged pre-implementation *security* decision, not just a doc string, was left unresolved.
 
 ---
 
