@@ -49,6 +49,42 @@ SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the 
 
 ---
 
+### FR11. Built-in MCP prompts for resources whose computed status is already a plain API object (ArgoCD `Application`, Cilium CRDs)
+
+**Spec:** PRD.md §15 FR11, SPEC.md §8 FR11.
+**Why:** live testing confirmed `k_get` already reaches ArgoCD's and Cilium's CRDs generically via the Tier-2 discovery cache — reach was never the gap. The model just has no way to know where the useful status fields live (e.g. ArgoCD's sync/health status) or which resource answers a given troubleshooting question. MCP prompts (a distinct primitive from tools) close that gap without adding resource-specific tools.
+**Scope:** three initial prompts (`argocd-app-health`, `cilium-troubleshoot-connectivity`, `rbac-effective-permissions`), registered unconditionally — no access-level gate, since a prompt performs no cluster access itself.
+
+**Verified (2026-09-25), before promotion into PRD/SPEC:** `fastmcp==4.0.4`'s `FastMCP.prompt(...)` signature confirmed real via `inspect.signature()` against this project's own environment, not fabricated. R7's access-gating rationale confirmed consistent with unconditional prompt registration (gating governs tools that act on the cluster; a prompt doesn't).
+
+**Status:** proposed, not started.
+
+---
+
+### FR12. `k_get_helm_release` — decode a Helm release's storage Secret into usable metadata
+
+**Spec:** PRD.md §15 FR12, SPEC.md §8 FR12.
+**Why:** Helm v3 release metadata is technically kubectl-reachable (as a labeled Secret) but not usable as-is, and is now additionally hard-redacted by Issue 35's `prune()` change.
+**Scope:** new read-only tool decoding the Secret's `base64(gzip(json))` `.data.release` value into a bounded summary, fetched directly (bypassing `prune()`'s Secret redaction the same way FR9's `k_get_secret_to_file` already does).
+
+**Verified (2026-09-25), before promotion into PRD/SPEC:** Helm v3's storage format (labels, base64+gzip+json encoding) confirmed accurate to standard, publicly-documented Helm v3 architecture. The proposed direct-fetch bypass of Issue 35's redaction confirmed to mirror `get_secret_to_file.py`'s existing, already-shipped pattern exactly — not a new kind of exception.
+
+**Status:** proposed, not started.
+
+---
+
+### FR13. `k_auth_can_i` — thin wrapper over `kubectl auth can-i` for RBAC effective-permission checks
+
+**Spec:** PRD.md §15 FR13, SPEC.md §8 FR13.
+**Why:** effective-permission computation is already done authoritatively by the API server (`SubjectAccessReview`); wrapping `kubectl auth can-i` avoids reimplementing RBAC/aggregation resolution client-side.
+**Scope:** new read-only tool with single-check and `--list` modes; must call `run_kubectl` directly rather than `run_kubectl_checked`, since this is the one kubectl subcommand where exit code 1 means "denied," not "failed."
+
+**Verified (2026-09-25), before promotion into PRD/SPEC:** confirmed against `kubectl/runner.py:108-109` — `run_kubectl_checked` treats any non-zero exit as an error with no special-casing, so the proposal's claimed workaround is correct and necessary, not overcautious. `kubectl auth can-i`'s 0/1 exit-code convention confirmed accurate.
+
+**Status:** proposed, not started.
+
+---
+
 ## OPEN (not yet fixed)
 
 _None — all previously open issues are fixed._
@@ -62,6 +98,7 @@ _None — all previously open issues are fixed._
 **File:** `pyproject.toml` (`dependencies` list), `src/k8s_mcp/tools/apply.py` (`import yaml` inside `_parse_manifest()`)
 **Fix:** Added `"pyyaml>=6.0"` to `pyproject.toml`'s `dependencies` list. No code change needed — `apply.py`'s `import yaml` is already correct, it just needs the package guaranteed present.
 **Test:** none needed beyond the existing `TestHandleApplyYamlErrorDetail::test_valid_yaml_still_works` (already covers the "YAML parsing works" path) — this is a packaging-manifest fix, not a code-behavior fix.
+**Verified (2026-09-25):** confirmed `pyproject.toml:16` has `"pyyaml>=6.0"` in `dependencies`. Committed as `f1680db`.
 
 ---
 
@@ -70,6 +107,7 @@ _None — all previously open issues are fixed._
 **File:** `src/k8s_mcp/tools/get.py:96`, `delete.py:44`, `describe.py:40`, `patch.py:72`
 **Fix:** Replaced `resource_meta.canonical` with `resource_meta.fully_qualified_name` in all four tools when building the kubectl resource argument. `fully_qualified_name` collapses to plain `canonical` when `group == ""` (zero behavior change for core-table entries) and returns `f"{canonical}.{group}"` when `group` is set, which is valid `kubectl get TYPE.GROUP` syntax.
 **Test:** Added 8 tests across `tests/unit/test_tools_get.py`, `test_tools_delete.py`, `test_tools_describe.py`, `test_tools_patch.py` (`TestHandleGetFullyQualifiedResource`, `TestHandleDeleteFullyQualifiedResource`, `TestHandleDescribeFullyQualifiedResource`, `TestHandlePatchFullyQualifiedResource`) — each asserts that groupful resources produce `fully_qualified_name` in kubectl args, and groupless resources produce plain `canonical`.
+**Verified (2026-09-25):** confirmed directly in all four files (`get.py:96`, `delete.py:44`, `describe.py:40`, `patch.py:72`) — each builds kubectl args from `resource_meta.fully_qualified_name`, not `.canonical`. All 8 tests read directly and confirmed to assert the actual group-qualified arg (e.g. `["get", "nodes.metrics.k8s.io"]`) for groupful resources, plus a groupless regression guard in each. Broader `grep -rn "\.canonical\b" src/k8s_mcp/` confirms no other call site builds a kubectl exec argument from bare `.canonical` (remaining hits are in `resolver.py`'s error-message candidate lists and `list_resources.py`'s display fields — neither executed). `264 tests pass`. Committed as `f1680db`.
 
 ---
 

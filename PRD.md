@@ -393,3 +393,40 @@ verbs = ["get"]
 - **R8** — fail-fast placement matches every other new check this session: validate `src_file`/`manifest` mutual exclusivity and path safety before `resolve()`/kubectl.
 - **R9** — not touched by this FR directly; see the related-finding note above for why it matters anyway.
 - **R11** — reading a local file with stdlib `open()` is not a new kubectl-invocation shape; the manifest still reaches kubectl exactly the way it does today, just sourced differently.
+
+### FR11. Built-in MCP prompts for resources whose computed status is already a plain API object (ArgoCD `Application`, Cilium CRDs)
+
+**Motivation.** Live testing (2026-09-25) confirmed `k_get` already reaches ArgoCD's `Application`/`AppProject`/`ApplicationSet` CRDs and all 11 Cilium CRD kinds generically through the existing Tier-2 discovery cache — including correct shortname resolution and ambiguity rejection. Reach was never the gap. What's missing is that the calling model has no way to know *where* the useful signal lives on these objects (e.g. ArgoCD's computed sync/health status sits at `.status.sync.status`/`.status.health.status`/`.status.resources[]`, written there by `argocd-application-controller` with no separate API call needed) or which resource+field combination answers a specific troubleshooting question. MCP's **prompt** primitive — distinct from a tool — exists for exactly this: reusable guidance text the model can pull in, rather than a new resource-specific tool (which R1 already rules out).
+
+**Proposed shape:**
+- Three initial prompts, registered unconditionally (not gated by access level, since a prompt returns only guidance text — the tool calls it recommends still pass the normal gate when actually issued): `argocd-app-health(name, namespace)`, `cilium-troubleshoot-connectivity(namespace, pod)`, `rbac-effective-permissions(as_user, namespace)` (the last pointing at FR13 once it ships).
+- Each prompt returns a literal, exact tool-call shape — the precise `resource=` string and JSON field path — not a paraphrased description, and each explicitly states what it does **not** cover (e.g. ArgoCD's live git-vs-cluster diff and custom resource actions require the ArgoCD API server, not a CRD read; Hubble flow/drop-verdict data has no backing Kubernetes API resource this project can reach at all).
+
+**Interaction with existing rules:**
+- **R1** — prompts are not tools and carry no resource-type-specific tool proliferation; they narrate existing generic-verb calls rather than adding new ones. Not a second exception alongside FR9's.
+- **R7** — the access-level gate governs tools that can act on the cluster; a prompt performs no cluster access itself, so gating it the same way would mean the model can't even see written guidance about a call it's otherwise permitted to make. Registering prompts unconditionally is consistent with R7's stated rationale ("the model never sees tools outside its level... spends no schema tokens on them") rather than an exception to it.
+- **Open question, not resolved here:** whether prompts should also take a namespace argument validated against `--allow-namespaces`, given the prompt itself performs no cluster access. Leaning no, flagged rather than assumed.
+
+### FR12. `k_get_helm_release` — decode a Helm release's storage Secret into usable metadata
+
+**Motivation.** Helm v3 stores each release revision as a `Secret` (labels `owner=helm`, `name=<release>`, `version=<revision>`) whose `.data.release` value is `base64(gzip(JSON))` — technically `kubectl`-reachable today but not usable as-is through any existing tool, and now additionally hard-redacted by Issue 35's Secret handling in `prune()` (so `k_get` alone can't even return the raw blob any more). There is currently no path to Helm release metadata (chart name/version, values, deployed timestamp, status) anywhere in this project.
+
+**Proposed shape:**
+- New read-only tool `k_get_helm_release(context, release, namespace, revision=None, include_manifest=False)`. Omitted `revision` resolves to the highest `version` label (the active revision, matching `helm history`'s own default). Response is a bounded, decoded summary (chart, chart_version, app_version, status, timestamps, values) — the full rendered manifest only on explicit `include_manifest=True`, to keep default responses small (R10).
+
+**Interaction with existing rules:**
+- **R9/Issue 35** — this tool fetches the Secret directly via the kubectl runner, the same pattern FR9's `k_get_secret_to_file` already established, rather than through `k_get`'s `prune()` path — so it legitimately bypasses the generic Secret-redaction hard block instead of being blocked by it. Not a second exception to Issue 35's posture; a second instance of the same already-established pattern (fetch Secrets directly when the tool's whole purpose requires seeing the content).
+- **R11** — the three-stage decode (base64 → gzip → json) is a wire-format decode, not a parallel Helm client; kubectl still does all cluster communication.
+- **Open question, not resolved here:** whether the decoded `values` block needs its own redaction — a chart's `values.yaml` can carry plaintext credentials a chart author put there, even though it isn't a Kubernetes `Secret` object by the API's own type system. Flagged as a real security-shape decision for the implementer, not assumed either way.
+
+### FR13. `k_auth_can_i` — thin wrapper over `kubectl auth can-i` for RBAC effective-permission checks
+
+**Motivation.** `Role`/`RoleBinding`/`ClusterRole`/`ClusterRoleBinding` are already reachable via generic `k_get`, but answering "can subject X perform verb Y on resource Z" requires walking every binding and resolving aggregated (Cluster)Roles — logic the API server already computes authoritatively via `SubjectAccessReview`. `kubectl auth can-i` is the client for that computation; wrapping it is a thin, correct shortcut rather than a new RBAC-resolution engine this project would have to maintain.
+
+**Proposed shape:**
+- New read-only tool `k_auth_can_i(context, verb=None, resource=None, name=None, namespace=None, as_user=None, as_group=None, list_all=False)`. Single-check mode returns `{"allowed": true|false}` plus the literal command run; `list_all=True` runs `kubectl auth can-i --list` and returns `{"permissions": {"<resource>": ["<verb>", ...]}}`.
+
+**Interaction with existing rules:**
+- **R11** — thin passthrough to kubectl's own authorization computation, no client-side RBAC re-derivation.
+- **A genuine exception to Issue 5's exit-code convention, not a rule violation:** `kubectl auth can-i` uses exit code as its answer channel (0=allowed, 1=denied — neither is a failure), the opposite of every other kubectl subcommand this project wraps. This tool must call the lower-level `run_kubectl` directly rather than `run_kubectl_checked`, and interpret `{0, 1}` itself, treating only other exit codes as `kubectl_failure`. Named explicitly here so a future reader doesn't "fix" this call site to route through `_checked` and silently break it.
+- **Decision already resolved, not re-litigated:** an unprivileged caller cannot use `--as` to probe beyond their own reach — kubectl itself requires the `impersonate` verb before honoring `--as`/`--as-group`, enforced server-side. No new privilege-escalation surface.

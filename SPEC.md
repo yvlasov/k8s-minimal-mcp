@@ -759,3 +759,126 @@ then leave everything downstream of that untouched.
 **Related, now-resolved finding (see PRD §15 FR10's own note and `KNOWN_ISSUES.md` Issue 35):**
 `output/pruning.py`'s `prune()` had no `Secret`-specific handling — `k_get`/`k_apply`/
 `k_patch`/`k_delete` all returned a Secret's full `.data` map verbatim. Resolved by Issue 35: `prune()` now redacts `.data`/`.stringData` to `{"redacted_keys": [...]}` (key names only) when `kind == "Secret"`.
+
+### FR11. Built-in MCP prompts for ArgoCD/Cilium status (PRD §15 FR11)
+
+**Status: Proposed, not started.** Technical claims below verified (2026-09-25) against this
+project's actual environment before promotion into this document — `fastmcp==4.0.4`'s
+`FastMCP.prompt(name_or_fn=None, *, name=None, version=None, title=None, description=None,
+icons=None, tags=None, meta=None, auth=None)` signature confirmed real via
+`inspect.signature()`, not fabricated; `add_prompt`/`list_prompts`/`get_prompt`/
+`render_prompt` all confirmed present on `FastMCP`.
+
+- **New module `src/k8s_mcp/prompts.py`** — one function per prompt, each returning a single
+  formatted `str` that embeds the literal tool-call shape (exact `resource=` string, exact
+  JSON field path), not a paraphrased description — matching this project's own convention
+  (`errors.py`, `KNOWN_ISSUES.md`) of exact reproduction over narrative:
+  - `argocd_app_health(name, namespace) -> str` — tells the model to call
+    `k_get(resource="applications.argoproj.io", name=..., namespace=..., output="yaml")` and
+    read `.status.sync.status`/`.status.health.status`/`.status.resources[]`; explicitly
+    states the hierarchical resource tree, live git-vs-cluster diffs, and custom resource
+    actions are **not** reachable this way (ArgoCD API server only).
+  - `cilium_troubleshoot_connectivity(namespace, pod) -> str` — a "Pod Can't Reach Service"
+    workflow against this project's real tools:
+    `k_get(resource="ciliumendpoints", namespace=...)` →
+    `k_get(resource="ciliumnetworkpolicies", namespace=...)` →
+    `k_describe(resource="pods", name=pod, namespace=...)`; explicitly states Hubble
+    flow/drop-verdict data is **not** reachable via any tool in this project (no backing API
+    resource).
+  - `rbac_effective_permissions(as_user, namespace) -> str` — once FR13 ships, points at
+    `k_auth_can_i` directly; until then, states the gap explicitly rather than describing a
+    manual `Role`/`RoleBinding` cross-reference workflow that would go stale the moment FR13
+    lands.
+- **`server.py`** — three `@app.prompt(name=..., description=...)` registrations placed
+  outside the `if "get" in allowed:`-style gating blocks — unconditional, per PRD §15 FR11's
+  R7 reasoning (a prompt performs no cluster access itself; the tool calls it recommends
+  still pass the normal gate when actually issued).
+- **Tests** — new `tests/unit/test_prompts.py`, one test per prompt asserting the returned
+  string contains the exact `resource=` value and the exact status-field path it claims to
+  reference, so a future rename doesn't silently drift the prompt text out of sync with
+  reality (the same drift class Issue 22 flags for PRD.md, applied here to prompt content).
+
+**Decision needed before implementation:** whether prompts should also take a namespace
+argument validated against `--allow-namespaces` — leaning no (the prompt itself performs no
+cluster access), but not assumed.
+
+### FR12. `k_get_helm_release` (PRD §15 FR12)
+
+**Status: Proposed, not started.** Helm v3's storage format (labels
+`owner=helm,name=<release>,version=<revision>`, `.data.release` = `base64(gzip(json))`)
+confirmed accurate (2026-09-25) against standard, publicly-documented Helm v3 architecture.
+The proposed direct-fetch bypass of Issue 35's Secret redaction confirmed to mirror
+`get_secret_to_file.py`'s existing, already-shipped pattern exactly (`get_secret_to_file.py`
+fetches via `run_kubectl_checked` directly, never through `k_get`'s `prune()` path) — not a
+new kind of exception.
+
+- **`errors.py`** — add `helm_release_not_found(context, release, namespace)` and
+  `helm_release_decode_failed(context, release, namespace, *, stage, detail)` (`stage` ∈
+  `{"base64", "gzip", "json"}` so a failure names exactly which decode step broke — same
+  discipline as every existing helper: `_base()` plus specific fields).
+- **New module `tools/get_helm_release.py`:**
+  - `resolve()`/`validate()` against `"secrets"` (Secrets are always namespaced — identical
+    R8 path to `get_secret_to_file.py`).
+  - List candidates via Helm's own labels, not the `sh.helm.release.v1.<name>.v<rev>` naming
+    convention: `run_kubectl_checked(context, ["get", "secret", "-n", namespace, "-l",
+    f"owner=helm,name={release}", "-o", "json"])`.
+  - No matches → `helm_release_not_found`. Otherwise select by `revision` if given, else the
+    max `metadata.labels.version` (cast to int).
+  - Decode chain on the selected Secret's `.data.release`: `base64.b64decode` →
+    `gzip.decompress` → `json.loads`, each stage's exception caught individually and mapped
+    to `helm_release_decode_failed(stage=..., detail=str(exc))` — mirroring Issue 36's fix
+    (surface the real parser error text, never swallow it).
+  - Build response: `{"release": ..., "revision": ..., "chart": ..., "chart_version": ...,
+    "app_version": ..., "status": ..., "first_deployed": ..., "last_deployed": ...,
+    "values": {...}}`, adding `"manifest": ...` only when `include_manifest=True`.
+- **`access.py`** — add `"get_helm_release"` to the `READONLY` tier's `_VERB_MAP`.
+- **`server.py`** — register unconditionally under the readonly gate, same pattern as `k_get`.
+- **Tests** — new `tests/unit/test_tools_get_helm_release.py`: happy path against a real
+  gzip+base64+JSON fixture (built the same way, not hand-waved, as
+  `tests/fixtures/kubectl_outputs/api_resources_wide.txt` was for Issue 28); `revision`
+  omitted picks the highest `version` label; explicit `revision` picks that exact Secret;
+  missing release → `helm_release_not_found`; each of the three decode stages independently
+  corrupted → `helm_release_decode_failed` with the matching `stage` and real exception text
+  in `detail`; `include_manifest=False` (default) omits `.manifest`; `True` includes it.
+
+**Decision needed before implementation:** whether the decoded `values` block should get
+Issue 35-style redaction (a chart's `values.yaml` can carry plaintext credentials a chart
+author put there, even though it isn't a Kubernetes `Secret` object by the API's own type
+system) — flagged, not resolved here, the same way FR9's Decisions section resolved
+Secret-specific questions before writing code rather than after.
+
+### FR13. `k_auth_can_i` (PRD §15 FR13)
+
+**Status: Proposed, not started.** Confirmed (2026-09-25) directly against
+`kubectl/runner.py:108-109` — `run_kubectl_checked` treats any non-zero exit code as an error
+via `map_kubectl_error(...)`, no special-casing — so this proposal's claim (`auth can-i`'s
+exit code 1/"denied" would be misclassified as `kubectl_failure` if routed through
+`_checked`) is accurate, and the proposed workaround (call `run_kubectl` directly) is
+necessary, not overcautious. `kubectl auth can-i`'s 0/1/other exit-code convention confirmed
+accurate to standard kubectl behavior.
+
+- **New module `tools/auth_can_i.py`:**
+  - Single-check: build args in order `["auth", "can-i", verb, resource_with_name] +
+    (["-n", namespace] if namespace) + (["--as", as_user] if as_user) + (["--as-group", g]
+    for g in as_group or [])`; run via `run_kubectl` (**not** `_checked`); map exit code
+    `{0: allowed, 1: denied}`, any other code → `kubectl_failure`.
+  - List mode: same flag construction minus `verb`/`resource`, plus `--list`; new parser
+    function (kubectl's `--list` table is a distinct format from the `api-resources -o wide`
+    table Issue 28 already parses — not reusable as-is) turning each row into a
+    `{resource: [verbs]}` entry, verbs split on whitespace same as that table's own column
+    convention.
+- **`access.py`** — add `"auth_can_i"` to the `READONLY` tier's `_VERB_MAP` (read-only
+  authorization query; no state change, no resource content beyond permission
+  booleans/verb lists).
+- **`server.py`** — register unconditionally under the readonly gate.
+- **Tests** — new `tests/unit/test_tools_auth_can_i.py`: single-check allowed (exit 0),
+  denied (exit 1), `--as`/`--as-group` correctly placed in args (order matters — verify via
+  `mock_run.call_args`, same assertion style as Issue 17's `-c`-before-`--` fix); `--list`
+  output parsed into the expected `{resource: [verbs]}` shape from a new fixture file (same
+  pattern as Issue 28's `tests/fixtures/kubectl_outputs/`); a genuine non-{0,1} exit code →
+  `kubectl_failure` carrying the real stderr.
+
+**Decision already resolved, not re-litigated:** an unprivileged caller cannot use `--as` to
+probe permissions beyond their own reach — kubectl itself requires the `impersonate` RBAC
+verb on the caller's own identity before `--as`/`--as-group` are honored at all, enforced
+server-side. This tool adds no new privilege-escalation surface.
