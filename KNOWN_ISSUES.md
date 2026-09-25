@@ -89,7 +89,7 @@ SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the 
 
 **Tool-count flag (2026-09-25):** current `admin`-visible tool count is 11/12 (PRD §12's ceiling). This tool registers at `readonly` and would stack into `admin`, bringing the total to exactly 12/12 — met, but zero headroom left after. Re-check the actual count at implementation time before shipping this alongside anything else.
 
-**Status:** proposed, not started.
+**Status:** implemented, unit-tested, and committed (`tests/unit/test_tools_auth_can_i.py`, 14 tests; full suite 303 passed).
 
 ---
 

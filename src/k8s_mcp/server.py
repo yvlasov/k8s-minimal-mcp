@@ -34,6 +34,7 @@ from .tools import (
     handle_list_resources,
     handle_get_secret_to_file,
     handle_get_helm_release,
+    handle_auth_can_i,
 )
 
 logger = logging.getLogger("k8s_mcp")
@@ -121,11 +122,21 @@ def main(argv: list[str] | None = None) -> None:
     if "get_helm_release" in allowed:
         @app.tool(name="k_get_helm_release", description="k_get_helm_release: release: Helm release name; namespace: Namespace; revision: Specific revision number (default: highest); include_manifest: Include the full rendered manifest in the response")
         def get_helm_release(context: str, release: str, namespace: str,
-                             revision: int | None = None,
-                             include_manifest: bool = False) -> dict[str, Any]:
+                              revision: int | None = None,
+                              include_manifest: bool = False) -> dict[str, Any]:
             return _dispatch("get_helm_release", handle_get_helm_release, context, discovery_cache, allow_namespaces,
-                             release=release, namespace=namespace,
-                             revision=revision, include_manifest=include_manifest)
+                              release=release, namespace=namespace,
+                              revision=revision, include_manifest=include_manifest)
+
+    if "auth_can_i" in allowed:
+        @app.tool(name="k_auth_can_i", description="k_auth_can_i: verb: Verb to check (e.g. get, list, watch); resource: Resource type; name: Resource name (optional); namespace: Namespace; as_user: Impersonate this user; as_group: Impersonate these groups; list_all: List all permissions for the current user")
+        def auth_can_i(context: str, verb: str | None = None, resource: str | None = None,
+                       name: str | None = None, namespace: str | None = None,
+                       as_user: str | None = None, as_group: list[str] | None = None,
+                       list_all: bool = False) -> dict[str, Any]:
+            return _dispatch("auth_can_i", handle_auth_can_i, context, discovery_cache, allow_namespaces,
+                              verb=verb, resource=resource, name=name, namespace=namespace,
+                              as_user=as_user, as_group=as_group, list_all=list_all)
 
     if "logs" in allowed:
         @app.tool(name="k_logs", description="k_logs: pod: Pod name; namespace: Pod namespace; container: Container name; tail: Number of lines from the end; previous: Use previous container instance; since: Return logs newer than a relative duration")

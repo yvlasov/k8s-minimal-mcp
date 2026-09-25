@@ -857,7 +857,7 @@ revisited when the code shipped.
 
 ### FR13. `k_auth_can_i` (PRD §15 FR13)
 
-**Status: Proposed, not started.** Confirmed (2026-09-25) directly against
+**Status: Implemented, unit-tested, and committed** (`tests/unit/test_tools_auth_can_i.py`, 14 tests; full suite 303 passed). Confirmed (2026-09-25) directly against
 `kubectl/runner.py:108-109` — `run_kubectl_checked` treats any non-zero exit code as an error
 via `map_kubectl_error(...)`, no special-casing — so this proposal's claim (`auth can-i`'s
 exit code 1/"denied" would be misclassified as `kubectl_failure` if routed through
