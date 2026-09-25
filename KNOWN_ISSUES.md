@@ -6,6 +6,26 @@ Distinct from `## OPEN`/`## FIXED` below, which track code defects — this sect
 proposed new capability and its implementation status. Full spec lives in PRD.md §15 /
 SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the full writeup.
 
+**Definition of Done, added 2026-09-25 after the 8th recurrence of doc drift (Issue 22) and
+a shipped-but-broken tool (Issue 40) both traced to the same root cause — a "Status:
+implemented, unit-tested, and committed" label being written before these were actually
+true. A Status line may not claim "implemented" until all of the following hold — check
+each explicitly, don't assume:**
+1. **Tests exercise the real dispatch path, not just the handler function directly.** Every
+   prior FR's tests called `handle_<tool>(...)` in isolation — none went through
+   `server.py`'s `_dispatch()`/the registered `@app.tool` wrapper. This is precisely what let
+   Issue 40 (a `discovery_cache` kwarg mismatch that crashes the tool on every real call)
+   ship with 14 passing tests. See Issue 41 for the structural fix (a dispatch-path smoke
+   test covering every registered tool).
+2. **SPEC.md §2's Module Layout tree lists the new module(s).**
+3. **PRD.md §6's Tool Specification table has a row for the new tool** (prompts are exempt —
+   see FR11's precedent — but anything registered via `@app.tool` is not).
+4. **PRD.md §12's "Status against current `main`" paragraph is re-dated and re-counted** if
+   the tool count changed — not left describing a prior FR as the most recent one.
+5. **README.md's Available Tools table has a row for the new tool.**
+6. **The Status line's own test count and commit hash are verified by actually running the
+   suite and checking `git log`**, not estimated or carried over from a draft.
+
 ### FR9. `k_get_secret_to_file` — write a Secret's decoded content to a file, never into model context
 
 **Spec:** PRD.md §15 FR9, SPEC.md §8 FR9.
@@ -89,11 +109,33 @@ SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the 
 
 **Tool-count flag (2026-09-25):** current `admin`-visible tool count is 11/12 (PRD §12's ceiling). This tool registers at `readonly` and would stack into `admin`, bringing the total to exactly 12/12 — met, but zero headroom left after. Re-check the actual count at implementation time before shipping this alongside anything else.
 
-**Status:** implemented, unit-tested, and committed (`tests/unit/test_tools_auth_can_i.py`, 14 tests; full suite 303 passed).
+**Status:** code committed, unit-tested (`tests/unit/test_tools_auth_can_i.py`, 14 tests; full suite 303 passed) — **but not actually usable through the real MCP server.** The core logic (the `run_kubectl`-not-`_checked` correctness trap this FR's own plan flagged) was implemented correctly and is well-tested. But `handle_auth_can_i()`'s signature has no `discovery_cache` parameter, while `server.py`'s `_dispatch()` unconditionally passes one to every handler — every real call crashes with `TypeError: handle_auth_can_i() got an unexpected keyword argument 'discovery_cache'`. None of the 14 tests call through `_dispatch()`, so this went undetected. Tracked as Issue 40 (OPEN, critical) below, not silently folded into "implemented." Tool-count recount confirms `admin` is now exactly 12/12 as flagged above.
+
+**Doc-drift check (2026-09-25) — 8th occurrence of the Issue-22 pattern, across four locations:** SPEC.md §2's Module Layout tree and PRD.md §6's Tool Specification table were both missing `k_auth_can_i` entirely (now added); PRD.md §12's "Status against current `main`" paragraph still described FR12 as the most recent shipped feature (now re-dated); README.md's Available Tools table is missing both this tool and the still-outstanding `k_get_helm_release` row from FR12 (not fixed here — README wasn't in scope for this update, flagging for a follow-up).
 
 ---
 
 ## OPEN (not yet fixed)
+
+### 40. `k_auth_can_i` crashes on every real call — `handle_auth_can_i()` doesn't accept the `discovery_cache` kwarg `_dispatch()` always passes
+
+**File:** `src/k8s_mcp/tools/auth_can_i.py:74-83` (signature), `src/k8s_mcp/server.py:73-74` (`_dispatch()`)
+**Severity:** Critical — not a hypothetical, a total functional break of every real invocation. `server.py`'s `_dispatch()` does `kwargs["discovery_cache"] = discovery_cache; return handler(context, **kwargs)` unconditionally for every dispatched tool (`server.py:73-74`). `handle_auth_can_i(context, verb=None, resource=None, name=None, namespace=None, as_user=None, as_group=None, list_all=False)` (`auth_can_i.py:74-83`) has no `discovery_cache` parameter at all — unlike `handle_get_helm_release`, which accepts `discovery_cache: DiscoveryCache | None = None` as a keyword-only param even though it doesn't use it (`get_helm_release.py:87`). Confirmed live: calling `k_auth_can_i` through the actual server raises `TypeError: handle_auth_can_i() got an unexpected keyword argument 'discovery_cache'`.
+**Why this shipped despite 14 passing tests:** every test in `tests/unit/test_tools_auth_can_i.py` calls `handle_auth_can_i(...)` directly, bypassing `_dispatch()`/`server.py` entirely — matching every other FR's test pattern this whole session. No test anywhere in the repo exercises the actual dispatch/registration path (confirmed: `grep -rln "_dispatch" tests/` returns nothing). This is the structural gap Issue 41 (below) fixes permanently; this issue is the immediate, mechanical fix for this one tool.
+**Proposed fix:** add `*, discovery_cache: DiscoveryCache | None = None` to `handle_auth_can_i()`'s signature, matching `get_helm_release.py:87`'s exact precedent (the function doesn't need to use it — `k_auth_can_i` never calls `resolve()` — it just needs to accept and ignore it, same as `get_helm_release.py` does for the params it doesn't touch). One-line, mechanical, no other logic change.
+**Proposed test:** a test that calls through `_dispatch()` (or at minimum passes `discovery_cache=<anything>` directly to `handle_auth_can_i()`) and asserts no `TypeError` — the exact case the existing 14 tests never covered.
+
+---
+
+### 41. No test in this repo exercises `server.py`'s `_dispatch()`/tool-registration path — every "unit test" calls handler functions directly, so signature mismatches between `_dispatch()` and any handler ship undetected
+
+**File:** `tests/` (structural gap — no single file), `src/k8s_mcp/server.py`
+**Severity:** High — this is the root cause that let Issue 40 ship with 14 passing tests and a "committed" status. First flagged as a residual gap under Issue 13, years-old-equivalent in this project's history ("no `tests/unit/test_server.py` was added... a future regression here wouldn't be caught by the suite") and explicitly marked "low priority, not re-blocking" at the time. Issue 40 is the predicted regression materializing.
+**Root cause:** `_dispatch()` (`server.py:45-73`) injects `discovery_cache` (and, for mutating verbs, does audit logging and namespace-allowlist checks) into every handler call via `**kwargs`. Nothing verifies that every registered handler's signature actually accepts what `_dispatch()` sends — a `**kwargs`-shaped handler would silently swallow the mismatch; a fully-typed one (this project's own established convention, per Issue 13's fix) raises `TypeError` at call time instead, which is strictly better (fails loud) but still only at call time, never at test time.
+**Proposed fix:** add `tests/unit/test_server.py` with one parametrized smoke test per access level (`readonly`/`readwrite`/`admin`) that builds the server via `main()`'s registration logic (or calls `_dispatch()` directly) for every tool name the access level should expose, with minimal valid mocked kwargs (mocking `resolve`/`run_kubectl`/`run_kubectl_checked` as needed, following each tool's own existing per-tool test fixtures), asserting the call completes without a `TypeError`/`AttributeError` from a kwarg mismatch. This directly closes Issue 13's residual gap and prevents this entire bug class (not just Issue 40) from recurring for any future tool.
+**Proposed test:** the fix *is* the test — `test_server.py` itself, run once per access level, covering every currently-registered tool (`k_list_contexts`, `k_get`, `k_get_helm_release`, `k_logs`, `k_apply`, `k_patch`, `k_delete`, `k_describe`, `k_exec`, `k_get_secret_to_file`, `k_auth_can_i`) plus the 3 prompts.
+
+---
 
 ### 39. `k_get_helm_release` returns a chart's `values` block fully unredacted — the pre-implementation decision to address this was never made
 
@@ -343,6 +385,8 @@ SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the 
 **Recurred a fifth time (2026-09-25), a new flavor — stale open-decision text, not a stale status line:** FR11 shipped with its namespace-validation question actually resolved in code (no `--allow-namespaces` check, since prompts perform no cluster access), but both PRD.md §15 and SPEC.md §8's "decision needed"/"open question" blurbs were left reading as unresolved — now closed out to state what was actually decided. Also found in the same pass: SPEC.md §2's Module Layout tree and §4's Startup Sequence were never updated for FR11's new `prompts.py` module or its registration step — now added. Same underlying process gap as the four recurrences above (nothing forces a doc touch in the same change that ships a feature), just manifesting as an un-updated decision/structure block instead of an un-updated status/table row.
 
 **Recurred a sixth and seventh time (2026-09-25):** FR12 shipped with `get_helm_release.py`/`test_tools_get_helm_release.py` absent from SPEC.md §2's Module Layout tree (sixth) and with no row for `k_get_helm_release` in PRD.md §6's Tool Specification table (seventh) — the latter a real gap, not a non-issue, since FR12 is a genuine tool (unlike FR11's prompts, which are correctly exempt from §6). Both now added. Separately, the FR12 status write-up's own test count was wrong ("12" vs. the actual 13, confirmed by running the suite) — a small factual-accuracy lapse in the same status text this pattern keeps drifting in, not a new category of drift but worth naming. FR12 also produced a materially more serious variant of this same "shipped without closing the loop" failure mode — see Issue 39 — where a flagged pre-implementation *security* decision, not just a doc string, was left unresolved.
+
+**Recurred an eighth time (2026-09-25), across four locations at once, and finally traced to a root cause instead of just patched again:** FR13 shipped with `auth_can_i.py`/its test file absent from SPEC.md §2's Module Layout tree, no row in PRD.md §6's Tool Specification table, and PRD.md §12's "Status against current `main`" paragraph still describing FR12 as the most recent feature — all now fixed. This recurrence prompted the actual structural fix instead of another one-off patch: a **Definition of Done checklist** (top of this section) that a Status line may not claim "implemented" without satisfying, and Issue 41 (a dispatch-path smoke test) closing the specific gap that let a *functionally broken tool* (Issue 40) carry an "implemented, unit-tested, and committed" label. Eight recurrences of "ship the code, forget a doc" is the point at which "review harder" stops being a credible fix — see the Definition of Done checklist for what replaces it.
 
 ---
 

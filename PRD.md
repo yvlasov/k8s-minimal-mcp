@@ -95,6 +95,7 @@ All tools take `context` (kubeconfig context name) as a required input parameter
 | `k_exec` | `pod`, `command` | `namespace`, `container` | N/A | admin |
 | `k_get_secret_to_file` | `name`, `namespace`, `dst_secret_file` | `overwrite` | N/A — response contains only key names and the destination path, never values. Deliberate, named R1 exception (§15 FR9) — resource-specific by design, `Secret`-only. | admin |
 | `k_get_helm_release` | `release`, `namespace` | `revision`, `include_manifest` | N/A — bounded decoded summary by default; full rendered manifest only on explicit `include_manifest=True`. Decoded `values` returned **unredacted** — a known, unresolved gap tracked as `KNOWN_ISSUES.md` Issue 39, not a deliberate design choice. Second named R1 exception (§15 FR12) — resource-specific by design, Helm-release-`Secret`-only. | readonly |
+| `k_auth_can_i` | none | `verb`, `resource`, `name`, `namespace`, `as_user`, `as_group`, `list_all` | N/A — single-check mode returns `{"allowed": bool}` plus the literal command; `list_all=True` returns `{"permissions": {...}}`. **Currently broken on every real call** — `KNOWN_ISSUES.md` Issue 40 (`discovery_cache` kwarg mismatch with `_dispatch()`), not yet fixed. | readonly |
 
 Supporting tools:
 
@@ -190,10 +191,10 @@ Rationale:
 - Zero wrong-context mutations across a scripted multi-context test scenario.
 - Ambiguous-resource calls (`networkpolicy` on a Cilium cluster) never silently resolve to the wrong API group.
 
-**Status against current `main` (2026-09-25), post-FR12:**
-- **Tool count:** met, but tight — 6 tools at `readonly`, 11 at `admin` (limit 12). FR13 (§15), planned at `readonly`, would bring `admin` to exactly 12/12 if shipped as specced — zero headroom left for anything after that without either raising this limit or retiring a tool.
+**Status against current `main` (2026-09-25), post-FR13:**
+- **Tool count:** met, exactly at the ceiling — 7 tools at `readonly`, 12 at `admin` (limit 12), confirmed by direct recount of `access.py`/`server.py` after FR13 shipped. Zero headroom remains; anything further either raises this limit or retires a tool. Note `k_auth_can_i` is currently non-functional (Issue 40) — the count is technically correct but one of the 12 doesn't work yet.
 - **Ambiguous-resource / wrong-API-group criterion:** met now, but was **actually violated** for a real period — this is precisely what `KNOWN_ISSUES.md` Issue 38 was (`nodes` vs. `metrics.k8s.io`'s `NodeMetrics` silently executing against the core object because the resolved `group` was discarded before reaching kubectl). Fixed and re-verified; flagging the connection here since Issue 38's own entry doesn't cite this criterion explicitly.
-- **CRUD coverage of an arbitrary CRD with zero server-side changes:** architecturally still holds — FR9/FR11/FR12 added tools/prompts without special-casing any CRD type; the two-tier resolution (core table + discovery cache) is unchanged. Not independently re-verified against a live cluster.
+- **CRUD coverage of an arbitrary CRD with zero server-side changes:** architecturally still holds — FR9/FR11/FR12/FR13 added tools/prompts without special-casing any CRD type; the two-tier resolution (core table + discovery cache) is unchanged. Not independently re-verified against a live cluster.
 - **Token budget ≤40%:** unmeasured — §10's own instrumentation step was never built, so this remains an open item, not a regression.
 - **Zero wrong-context mutations:** structurally enforced by R3 (no default `context`, no session state) across every tool; no dedicated named multi-context test scenario exists as its own artifact, but every handler test exercises distinct `context` values and asserts correct echo.
 
@@ -437,6 +438,8 @@ verbs = ["get"]
 - New read-only tool `k_auth_can_i(context, verb=None, resource=None, name=None, namespace=None, as_user=None, as_group=None, list_all=False)`. Single-check mode returns `{"allowed": true|false}` plus the literal command run; `list_all=True` runs `kubectl auth can-i --list` and returns `{"permissions": {"<resource>": ["<verb>", ...]}}`.
 
 **§12 tool-count constraint, checked against current `main`:** this tool would be the 7th `readonly` tool and, since `readonly` tools stack into `admin`, would bring `admin`'s count to exactly 12/12 (§12's stated ceiling) — no violation, but zero headroom remains after this ships. Worth confirming at implementation time that the count is still accurate (FR9/FR12 both landed since this constraint was last checked) and flagging in the PR if anything else is bundled alongside it.
+
+**Shipped, but currently non-functional — see `KNOWN_ISSUES.md` Issue 40 and Issue 41 (2026-09-25):** the implementation itself (the `run_kubectl`-not-`_checked` exit-code handling this section anticipated as the hard part) is correct and well-tested. But `handle_auth_can_i()` crashes on every real call — its signature never gained the `discovery_cache` parameter `server.py`'s `_dispatch()` unconditionally sends to every handler, and none of its 14 tests called through `_dispatch()` to catch it. One-line fix pending (Issue 40); Issue 41 proposes the structural test that prevents this class of bug for any future tool.
 
 **Interaction with existing rules:**
 - **R11** — thin passthrough to kubectl's own authorization computation, no client-side RBAC re-derivation.

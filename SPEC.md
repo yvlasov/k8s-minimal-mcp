@@ -49,7 +49,8 @@ k8s-minimal-mcp/
 │       │   ├── contexts.py        # k_list_contexts
 │       │   ├── list_resources.py  # k_list_resources (FR3)
 │       │   ├── get_secret_to_file.py  # k_get_secret_to_file (FR9, admin-only, named R1 exception)
-│       │   └── get_helm_release.py    # k_get_helm_release (FR12, readonly, named R1 exception — see Issue 39, values unredacted)
+│       │   ├── get_helm_release.py    # k_get_helm_release (FR12, readonly, named R1 exception — see Issue 39, values unredacted)
+│       │   └── auth_can_i.py          # k_auth_can_i (FR13, readonly — see Issue 40, broken via _dispatch until fixed)
 │       │
 │       ├── resolution/            # R2, R5, R6 — resource name -> GVK
 │       │   ├── __init__.py
@@ -93,7 +94,11 @@ k8s-minimal-mcp/
 │   │   ├── test_access.py         # R7 registration filtering per level
 │   │   ├── test_errors.py         # §7 error contract shape for each code
 │   │   ├── test_prompts.py        # FR11: exact resource=/field-path string assertions per prompt
-│   │   └── test_tools_get_helm_release.py  # FR12: decode-chain, revision-selection, redaction-gap coverage
+│   │   ├── test_tools_get_helm_release.py  # FR12: decode-chain, revision-selection, redaction-gap coverage
+│   │   └── test_tools_auth_can_i.py   # FR13: exit-code mapping, --as/--as-group ordering, --list parsing
+│   │   # test_server.py does NOT exist yet — proposed by Issue 41 (OPEN): a dispatch-path
+│   │   # smoke test calling every registered tool through _dispatch(), not the handler
+│   │   # directly. This is the gap that let Issue 40 ship with 14 passing but non-catching tests.
 │   ├── integration/
 │   │   └── test_tools_against_kind.py  # optional: real kubectl against a kind/minikube cluster
 │   └── fixtures/
@@ -187,6 +192,7 @@ Loaded once at startup into `list[ResourceMeta]`. Discovery-cache entries (`reso
 - **No tool function does field pruning or truncation itself.** Always through `output/`. Keeps R9/R10 uniform per PRD §14 and avoids drift between tools.
 - **`context` is threaded explicitly through every function call** in the chain above — never stored on a class instance, never module-level state. This is the code-level enforcement of R3 ("no session-scoped state").
 - **Ambiguous resolution never guesses.** `resolver.py` returning multiple candidates is a normal, tested code path — not an exception path to be minimized away.
+- **Every handler's tests must include at least one call through `_dispatch()` (or the registered `@app.tool`/`@app.prompt` wrapper), not only direct calls to `handle_<tool>(...)`.** `_dispatch()` injects `discovery_cache` (and, for mutating verbs, audit logging / namespace-allowlist checks) via `**kwargs` into every handler call — a handler whose signature doesn't accept what `_dispatch()` sends crashes on every real invocation, and a test suite that only calls the handler directly will never catch it. This is not hypothetical: it shipped (Issue 40 — `k_auth_can_i` crashed on every real call despite 14 passing unit tests, none of which went through `_dispatch()`). See Issue 41 for the planned `test_server.py` smoke test that closes this gap structurally, and this project's `KNOWN_ISSUES.md` "Definition of Done" checklist for what must be true before a feature's Status line can say "implemented."
 - **Tools build kubectl's resource argument from `resource_meta.fully_qualified_name`, never bare `.canonical`.** `fully_qualified_name` already collapses to plain `canonical` when `group == ""` (the common case, zero behavior change), but includes `.group` when set — the only way a resolved group-qualification (R6's escape hatch) actually survives into the kubectl command instead of being silently discarded, letting kubectl's own cross-group tie-break override a correctly-resolved `ResourceMeta` (see `KNOWN_ISSUES.md` Issue 38, which found this bug in `get.py`/`delete.py`/`describe.py`/`patch.py` simultaneously — all four had copied the same bare-`.canonical` pattern).
 - **Error responses are constructed only via `errors.py` helpers** (e.g. `errors.ambiguous_resource(candidates, hint)`), never assembled ad hoc in a tool — guarantees the §7 shape stays identical everywhere.
 - **`k_describe` and `k_exec` are implemented behind explicit conditionals** tied to the still-open PRD §13 questions — keep them isolated enough to delete or gate without touching other tools if the open questions resolve against shipping them.
@@ -857,7 +863,12 @@ revisited when the code shipped.
 
 ### FR13. `k_auth_can_i` (PRD §15 FR13)
 
-**Status: Implemented, unit-tested, and committed** (`tests/unit/test_tools_auth_can_i.py`, 14 tests; full suite 303 passed). Confirmed (2026-09-25) directly against
+**Status: code committed, unit-tested — not yet usable through the real server.** The
+`run_kubectl`-not-`_checked` exit-code logic this section's plan flagged as the hard part was
+implemented correctly and is well-tested (`tests/unit/test_tools_auth_can_i.py`, 14 tests;
+full suite 303 passed). But `handle_auth_can_i()` doesn't accept `discovery_cache`, which
+`server.py`'s `_dispatch()` always passes — every real call crashes. See `KNOWN_ISSUES.md`
+Issue 40 for the one-line fix and Issue 41 for why 14 passing tests didn't catch it. Confirmed (2026-09-25) directly against
 `kubectl/runner.py:108-109` — `run_kubectl_checked` treats any non-zero exit code as an error
 via `map_kubectl_error(...)`, no special-casing — so this proposal's claim (`auth can-i`'s
 exit code 1/"denied" would be misclassified as `kubectl_failure` if routed through
