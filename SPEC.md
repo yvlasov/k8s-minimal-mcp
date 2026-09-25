@@ -18,8 +18,9 @@ This document resolves PRD §14's open language question in favor of **Python + 
 | Data validation | `pydantic` v2 | Tool input/output schemas, error contract shapes (§7), core-table row schema. |
 | Config | `tomllib` (read) + CLI args via `argparse` | Core resource table and startup flags (access level, namespace allowlist). |
 | Testing | `pytest` + `pytest-mock` | Subprocess calls must be mockable — never shell out in unit tests. |
+| Manifest parsing | `PyYAML` (`yaml.safe_load`) | `k_apply`/`k_patch` accept YAML manifests as a fallback when JSON parsing fails (added post-v1, see `KNOWN_ISSUES.md` Issue 6). **Currently an undeclared transitive dependency** — not listed in `pyproject.toml`'s `dependencies`, only present because `fastmcp` pulls in `jsonschema-path`, which requires `pyyaml`. See `KNOWN_ISSUES.md` Issue 37. |
 
-No YAML/JSON schema library beyond what `pydantic` and stdlib `json` provide. No async runtime needed unless FastMCP requires it for transport — kubectl calls are synchronous subprocess calls; if FastMCP's transport is async, wrap subprocess calls with `asyncio.to_thread`.
+No JSON schema library beyond `pydantic` and stdlib `json`. No async runtime needed unless FastMCP requires it for transport — kubectl calls are synchronous subprocess calls; if FastMCP's transport is async, wrap subprocess calls with `asyncio.to_thread`.
 
 ---
 

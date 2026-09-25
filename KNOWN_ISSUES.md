@@ -51,7 +51,13 @@ SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the 
 
 ## OPEN (not yet fixed)
 
-_None — all previously open issues are fixed._
+### 37. `pyyaml` is an undeclared transitive dependency — `pyproject.toml` never lists it, yet `k_apply`/`k_patch` rely on it
+
+**File:** `pyproject.toml` (`dependencies` list), `src/k8s_mcp/tools/apply.py` (`import yaml` inside `_parse_manifest()`)
+**Severity:** Low today, but a real latent fragility — found while re-verifying Issue 36's fix, not a live failure report. `pyproject.toml`'s `dependencies = ["fastmcp>=0.2", "pydantic>=2.6"]` never lists `pyyaml`, yet `_parse_manifest()`'s YAML fallback path (added by Issue 6, used by both `k_apply` and, via the same helper pattern, wherever manifest parsing happens) does `import yaml` and calls `yaml.safe_load(...)`. Confirmed via `uv pip show pyyaml`: it's currently installed and importable only because `fastmcp` transitively pulls in `jsonschema-path`, which requires `pyyaml`. `fastmcp`'s own dependency graph is not a contract this project controls — a future `fastmcp` version that drops or replaces `jsonschema-path` would silently remove `pyyaml` from the environment.
+**Why this is worse than a normal missing-dependency bug:** `_parse_manifest()`'s `import yaml` failure is caught by its own `except ImportError: pass` (the exact code Issue 36 already narrowed the *other* except-clause on) and silently falls through to the generic `"manifest is empty or invalid"` error — a YAML manifest that used to work would start failing with a message that gives zero indication the actual cause is a missing package, not a malformed manifest.
+**Proposed fix:** add `"pyyaml>=6.0"` to `pyproject.toml`'s `dependencies` list (matching the version currently resolved in the dev venv, `6.0.3`) so it's an explicit, pinned-range direct dependency rather than an accidental transitive one. No code change needed — `apply.py`'s `import yaml` is already correct, it just needs the package guaranteed present.
+**Proposed test:** none needed beyond the existing `TestHandleApplyYamlErrorDetail::test_valid_yaml_still_works` (already covers the "YAML parsing works" path) — this is a packaging-manifest fix, not a code-behavior fix.
 
 ---
 
@@ -72,6 +78,7 @@ _None — all previously open issues are fixed._
 **Fix:** Changed `_parse_manifest()` to return `(data, yaml_error_detail)` tuple. The `except Exception: pass` was replaced with `except yaml.YAMLError as e` (import moved to its own try/except for ImportError), and the error message is threaded into `handle_apply()`'s `invalid_manifest` call — e.g. `"manifest is not valid JSON or YAML: <yaml parser message>"`. Empty/invalid manifests without a YAML error still get the generic `"manifest is empty or invalid"` detail.
 **Test:** Added 3 tests in `tests/unit/test_tools_apply.py` (`TestHandleApplyYamlErrorDetail`): invalid YAML produces detail containing the YAML parser's error text; empty manifest still gets generic error; valid YAML continues to work.
 **Verified:** 256 tests pass (253 + 3 new). Confirmed directly — `_parse_manifest("bad: yaml\n[")` now returns `({}, "manifest is not valid JSON or YAML: ...")` and `handle_apply()` surfaces the YAML parser's actual error message in the `invalid_manifest` response detail.
+**Re-verified independently (2026-09-25):** re-read `apply.py` fresh, not from the fix description above. Confirmed the new `tuple[dict[str, Any], str | None]` return shape has exactly one call site and it's correctly unpacked; confirmed zero remaining `except Exception` in the file; traced `yaml.safe_load("bad: [")` end-to-end — it raises a real `yaml.parser.ParserError` whose message reaches `invalid_manifest`'s `detail` field unmodified. `TestHandleApplyYamlErrorDetail`'s 3 tests assert on actual message content, not just error presence. Committed as `583f431`. Broader `grep -rn "except Exception" src/k8s_mcp/` returns zero hits elsewhere — this was the only instance of the pattern.
 
 ---
 
