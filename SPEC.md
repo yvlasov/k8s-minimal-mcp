@@ -45,14 +45,18 @@ k8s-minimal-mcp/
 │       │   ├── patch.py           # k_patch
 │       │   ├── delete.py          # k_delete
 │       │   ├── exec_.py           # k_exec (trailing underscore: `exec` is a builtin)
-│       │   └── contexts.py        # k_list_contexts
+│       │   ├── contexts.py        # k_list_contexts
+│       │   ├── list_resources.py  # k_list_resources (FR3)
+│       │   └── get_secret_to_file.py  # k_get_secret_to_file (FR9, admin-only, named R1 exception)
 │       │
 │       ├── resolution/            # R2, R5, R6 — resource name -> GVK
 │       │   ├── __init__.py
 │       │   ├── core_table.py      # loads static core table (data file, not inline per PRD §14)
 │       │   ├── discovery.py       # per-context `kubectl api-resources` cache, TTL (R5)
 │       │   ├── resolver.py        # resolve(context, resource_name) per PRD §7 pseudocode
-│       │   └── models.py          # ResourceMeta: canonical name, shortnames, kind, group/version, namespaced, verbs
+│       │   ├── models.py          # ResourceMeta: canonical name, shortnames, kind, group/version, namespaced, verbs
+│       │   ├── annotation_selector.py  # FR2: parse/match annotation_selector query grammar
+│       │   └── jsonpath_validation.py  # FR8: nested-brace jsonpath_template syntax guard
 │       │
 │       ├── kubectl/               # R11 — subprocess boundary, isolated for mockability
 │       │   ├── __init__.py
@@ -587,7 +591,9 @@ none — `envelope()` and `exec_failed()` already exist and cover both fixes).
 
 ### FR9. `k_get_secret_to_file` (PRD §15 FR9)
 
-**Status: Implemented.** The three "design decisions" flagged in PRD FR9 were resolved
+**Status: Implemented and committed** (`a30abbb` docs, `d6c609c` implementation; full suite 240 passed). PRD §6's Tool Specification table updated to include this tool's row — same drift class as Issue 22, this time for a whole new tool rather than a param.
+
+The three "design decisions" flagged in PRD FR9 were resolved
 before implementation:
 - Path safety: absolute path only; the admin-only gate is sufficient — no configured
   directory allowlist.
@@ -670,3 +676,86 @@ before implementation:
     (serialize the response and search for the plaintext value) — this is the property the
     whole tool exists for, so it deserves its own explicit assertion, not just "the response
     happens not to include a `data` key."
+
+### FR10. `src_file` for `k_apply` (PRD §15 FR10)
+
+**Status: Not started.**
+
+Current `handle_apply()` (`tools/apply.py`) always requires `manifest: str` and uses it in
+two places: `_parse_manifest(manifest)` (to determine `kind` for R8 validation) and
+`run_kubectl_checked(context, args, stdin=manifest, ...)` (the actual apply). Both uses
+operate on the *string content*, not on where it came from — this is what makes the change
+minimal: resolve a single `manifest_content` string once, from whichever source was given,
+then leave everything downstream of that untouched.
+
+- **`errors.py`:** add `ERROR_FILE_READ_FAILED = "file_read_failed"` +
+  `file_read_failed(context, path, *, detail=None)`, mirroring FR9's `file_write_failed`
+  exactly. Reuse the existing `unsafe_path()` helper (already added for FR9) for the
+  path-safety check — same concept, no need for a second helper.
+- **`tools/apply.py`:**
+  ```python
+  def handle_apply(
+      context: str,
+      manifest: str | None = None,
+      *,
+      src_file: str | None = None,
+      namespace: str | None = None,
+      dry_run: str = "none",
+      output: str | None = None,
+      jsonpath_template: str | None = None,
+      discovery_cache: DiscoveryCache | None = None,
+  ) -> dict[str, Any]:
+  ```
+  At the very top, before any existing fail-fast check:
+  ```python
+  if (manifest is None) == (src_file is None):  # neither or both set
+      return envelope(
+          invalid_manifest(context, detail="exactly one of manifest or src_file is required"),
+          context, "k_apply", success=False,
+      )
+  if src_file is not None:
+      if not os.path.isabs(src_file):
+          return envelope(unsafe_path(context, src_file, detail="src_file must be an absolute path"),
+                           context, "k_apply", success=False)
+      try:
+          with open(src_file, "r") as f:
+              manifest_content = f.read()
+      except OSError as e:
+          return envelope(file_read_failed(context, src_file, detail=str(e)),
+                           context, "k_apply", success=False)
+  else:
+      manifest_content = manifest
+  ```
+  Every subsequent reference to the parameter named `manifest` in the existing function body
+  (the `_parse_manifest(manifest)` call, and the `stdin=manifest` kwarg in both
+  `run_kubectl_checked` calls) becomes `manifest_content` instead — a rename, not a logic
+  change. No other line in the function needs to change.
+- **`server.py`:** add `src_file: str | None = None` to the `apply()` wrapper's signature,
+  make `manifest` optional (`str | None = None`) there too, thread `src_file` through
+  `_dispatch(...)`'s kwargs. Update the tool description to document the
+  mutual-exclusivity requirement explicitly (a caller reading the schema should be able to
+  tell `manifest`/`src_file` are alternatives, not both-required or independently optional).
+- **PRD §6:** update `k_apply`'s row once this ships — required column changes from
+  `manifest` to "`manifest` or `src_file` (exactly one)", per this project's now-established
+  discipline of not letting §6 drift behind a shipped param (see `KNOWN_ISSUES.md` Issue 22
+  — this has been missed multiple times before; make the same explicit note FR8 used to try
+  to break the pattern).
+- **Tests** (`tests/unit/test_tools_apply.py`):
+  - `src_file` pointing at a real manifest file (use `tmp_path`, not a mocked filesystem, so
+    the actual `open()`/read path is exercised) → same success behavior as the equivalent
+    inline `manifest` call — assert `run_kubectl_checked`'s `stdin` kwarg equals the file's
+    content.
+  - both `manifest` and `src_file` set → `invalid_manifest` error, `resolve()`/kubectl never
+    called.
+  - neither set → `invalid_manifest` error, same fail-fast placement.
+  - relative `src_file` → `unsafe_path` error, kubectl never called.
+  - `src_file` pointing at a nonexistent path → `file_read_failed`, not an unhandled
+    exception.
+  - existing `manifest`-only tests continue to pass unmodified — this change must be
+    additive, not disruptive to the current call shape.
+
+**Related, separately-tracked finding (see PRD §15 FR10's own note and `KNOWN_ISSUES.md`):**
+`output/pruning.py`'s `prune()` has no `Secret`-specific handling — `k_get`/`k_apply`/
+`k_patch`/`k_delete` all return a Secret's full `.data` map verbatim today. Not fixed as
+part of this FR; tracked as its own item since it touches every tool that can return a
+Secret, not just `k_apply`.

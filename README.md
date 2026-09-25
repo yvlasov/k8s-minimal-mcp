@@ -107,6 +107,7 @@ Set `$KUBECONFIG` before starting the server if you need a non-default file.
 | `k_patch` | Patch a resource | readwrite |
 | `k_delete` | Delete resources | readwrite |
 | `k_exec` | Execute commands in a pod | admin |
+| `k_get_secret_to_file` | Decode a Secret and write it to a file on the server's filesystem — values never appear in the response | admin |
 
 All tools accept `context` (kubeconfig context name) as a required parameter.
 

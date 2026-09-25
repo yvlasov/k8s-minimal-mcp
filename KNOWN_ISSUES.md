@@ -24,13 +24,40 @@ SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the 
 - Output file format: one JSON file, `{"data": {...}, "base64_keys": [...]}`.
 - Non-UTF-8 secret values: per-key base64-passthrough (lossless) — values that are not valid base64, or not valid UTF-8 after decoding, are written as-is and listed in `base64_keys`.
 
-**Status:** implemented and unit-tested (`tests/unit/test_tools_get_secret_to_file.py`, 11 tests; full suite 240 passed). Commit pending explicit request.
+**Status:** implemented, unit-tested, and committed (`a30abbb` docs, `d6c609c` implementation; `tests/unit/test_tools_get_secret_to_file.py`, 11 tests; full suite 240 passed).
+
+**Verified (2026-09-25):** re-read the actual implementation against PRD/SPEC fresh, not just the status note above. Confirmed: path safety (absolute-only, no directory allowlist), output format (`{"data": {...}, "base64_keys": [...]}`), non-UTF-8 handling traced end-to-end (original base64 string preserved verbatim on decode failure — lossless), file permissions (`os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)` with no wider-mode window, plus an explicit re-`chmod(0o600)` on the overwrite path), overwrite refusal by default. Access-level gating confirmed in both `access.py`'s `_VERB_MAP` (admin tier only) and `server.py`'s registration condition. The core security-property test (`test_secret_values_never_appear_in_response`) confirmed to serialize the *full* response and search for both the plaintext and base64-encoded value — not just check for a missing top-level `data` key. One gap found and fixed alongside this update: PRD §6's Tool Specification table had not been updated for the new tool — same drift class as Issue 22, this time for a whole new tool rather than a param.
+
+---
+
+### FR10. `src_file` — apply a manifest from a local file, never through model context
+
+**Spec:** PRD.md §15 FR10, SPEC.md §8 FR10.
+**Why:** FR9 lets a caller read a Secret to a file without exposing its content to the model. There's no way back in — `k_apply`'s only input (`manifest: str`) is always inline, so the natural round trip (read a Secret to a file, edit it out-of-band, apply the edited file back) still forces the content through the model at the apply step even though FR9 kept it out at the read step. `src_file` adds a second, file-based way to supply `k_apply`'s manifest.
+**Scope:** add `src_file: str | None = None` to `k_apply` only (not `k_patch` — its `patch` param is a small patch document, not a full manifest; out of scope unless requested separately). Exactly one of `manifest`/`src_file` required. Absolute-path-only rule, same as FR9's `dst_secret_file`, reusing the same `unsafe_path` error helper. New `file_read_failed` error, mirroring FR9's `file_write_failed`.
+
+**Implementation plan:**
+1. `errors.py` — add `file_read_failed(context, path, *, detail=None)`, reuse existing `unsafe_path()`/`invalid_manifest()`.
+2. `tools/apply.py` — resolve a single `manifest_content` string once at the top of `handle_apply()` (from `manifest` directly, or by reading `src_file` after the absolute-path check), then use `manifest_content` everywhere the function currently uses `manifest` (`_parse_manifest()` and both `stdin=` kwargs) — a rename plus one new fail-fast block, no other logic change.
+3. `server.py` — `manifest` becomes optional, add `src_file` to the `apply()` wrapper and thread it through `_dispatch(...)`; update the tool description to state the two params are mutually exclusive alternatives.
+4. PRD §6 — update `k_apply`'s row once shipped (required column: "`manifest` or `src_file`, exactly one"). This exact step (§6 drifting behind a shipped param) has already happened multiple times this project's history — see Issue 22 — make a point of not letting it happen an (n+1)th time.
+5. Tests — `src_file` via `tmp_path` succeeds identically to the equivalent inline `manifest`; both-set and neither-set → `invalid_manifest`; relative `src_file` → `unsafe_path`; nonexistent `src_file` → `file_read_failed`; existing `manifest`-only tests unmodified.
+
+**Related finding, tracked separately (see Issue 35 below):** `src_file`'s whole motivation (route Secret content around the model) is undercut by an existing, unrelated gap — `k_apply`'s (and every other tool's) response already echoes a Secret's `.data` map verbatim, `src_file` or not. Not fixed as part of this FR.
+
+**Status:** not started — planning only.
 
 ---
 
 ## OPEN (not yet fixed)
 
-None.
+### 35. `prune()` has no `Secret`-specific handling — `k_get`/`k_apply`/`k_patch`/`k_delete` all return a Secret's full `.data` map verbatim
+
+**File:** `src/k8s_mcp/output/pruning.py`
+**Severity:** High — a real, currently-shipping content-exposure gap, not a hypothetical. Confirmed by reading `pruning.py` in full: `prune()`'s only special-casing is the `_STATUS_KINDS`/`_CONDITION_KINDS` status-retention allowlist (R9) — there is no `kind == "Secret"` branch anywhere, and no field in `_UNCONDITIONAL_STRIP_PATHS` targets `.data`/`.stringData`. Any `k_get resource=secrets name=... output=json`, or any `k_apply`/`k_patch`/`k_delete` that touches a Secret, returns that Secret's base64-encoded values in the response exactly as kubectl returned them — fully exposed to the model, logged, and retained in conversation history.
+**Discovered while designing:** FR10 (`src_file`), whose stated purpose is keeping Secret content out of model context on the *write* path — a purpose already undermined by this gap on the *read-back* path, since applying/patching a Secret returns the resulting object's data unredacted regardless of how the manifest was supplied.
+**Proposed fix (not yet built — this is an OPEN issue, no fix applied):** extend `prune()` with `Secret`-specific handling, applied uniformly (matching R9's own "single response-transform applied uniformly at the output boundary" principle, PRD §14) rather than as one-off logic in each tool: when `kind == "Secret"`, strip `.data`/`.stringData` entirely (replace with a `{"redacted_keys": [...]}` marker preserving just the key names, mirroring FR9's `keys`-only response shape) unless the caller explicitly opts in to seeing values (an explicit `output=json` request is *not* sufficient opt-in on its own, since that's already the default way to inspect any resource — this needs its own explicit signal, e.g. a `reveal_secrets=true`-style param on `k_get` specifically, or simply never allow it and point callers at `k_get_secret_to_file` instead).
+**Open question, resolve before implementing:** should this be a hard block (Secrets are simply never returned with values, full stop — push everyone toward `k_get_secret_to_file`) or an opt-in reveal? A hard block is simpler and matches this project's general safety-by-default posture (R7, R8); an opt-in adds a parameter and a decision about what counts as sufficient intent to see the value.
 
 ---
 

@@ -93,6 +93,7 @@ All tools take `context` (kubeconfig context name) as a required input parameter
 | `k_patch` | `resource`, `name`, `patch` | `namespace`, `type` (strategic/merge/json), `dry_run`, `output`, `jsonpath_template` | N/A — same as `k_apply` above, including `invalid_jsonpath_template` for nested braces. | readwrite |
 | `k_delete` | `resource` | `name`, `namespace`, `label_selector`, `dry_run` | N/A — same | readwrite |
 | `k_exec` | `pod`, `command` | `namespace`, `container` | N/A | admin |
+| `k_get_secret_to_file` | `name`, `namespace`, `dst_secret_file` | `overwrite` | N/A — response contains only key names and the destination path, never values. Deliberate, named R1 exception (§15 FR9) — resource-specific by design, `Secret`-only. | admin |
 
 Supporting tools:
 
@@ -359,7 +360,13 @@ verbs = ["get"]
 - **File permissions.** The written file should be created with restrictive permissions (e.g. `0600`) given its content — should not silently inherit the process umask.
 - **Overwrite behavior.** If `dst_secret_file` already exists: silently overwrite, refuse by default, or require an explicit `overwrite=true`? Given the sensitivity, refusing by default and requiring explicit opt-in to overwrite is the safer posture — but this is a call to make explicitly, not assume.
 - **Output file format.** A Secret's `data` map can have multiple keys (e.g. `username`+`password`). Proposed default: one JSON file `{"key1": "decoded_value1", ...}` — matches this project's existing structured-output conventions (vs. `.env`-style `KEY=value` lines, which is also reasonable and worth considering if the file is meant to be consumed by another tool expecting that shape).
-- **Scope boundary:** this tool only *gets* (reads Secret → writes file). A companion "apply from file" tool (read a file, patch/create a Secret from it, without the content ever passing through the model either) is a natural follow-up but explicitly out of scope for this FR unless requested separately — the name (`k_get_secret_to_file`) and the motivation above are both about reading, not writing.
+- **Scope boundary:** this tool only *gets* (reads Secret → writes file). A companion "apply from file" tool (read a file, patch/create a Secret from it, without the content ever passing through the model either) is a natural follow-up but explicitly out of scope for this FR unless requested separately — the name (`k_get_secret_to_file`) and the motivation above are both about reading, not writing. (This follow-up is now FR10 below, though scoped generically to any manifest, not Secret-specific.)
+
+**Resolved (as implemented — see SPEC.md §8 FR9 / `KNOWN_ISSUES.md` for full detail):**
+- **Path safety:** absolute path only (`os.path.isabs()`), fail-fast. No configured directory allowlist — the admin-only access gate was judged sufficient, per the "acceptable-risk decision" framing above.
+- **File permissions:** `os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)` at creation — no window where the file exists at a wider mode. An explicit extra `os.chmod(path, 0o600)` runs on the overwrite path too, in case an existing file had a different mode before being replaced.
+- **Overwrite behavior:** refuses by default (`file_exists` error); explicit `overwrite=true` required to replace an existing file.
+- **Output file format:** `{"data": {key: decoded_value, ...}, "base64_keys": [...]}` — not the flat `{key: value}` shape originally proposed above. Values that fail base64 or UTF-8 decoding are written back verbatim (lossless) and their keys listed in `base64_keys`, rather than being corrupted by a `errors="replace"`-style decode.
 
 **Interaction with existing rules:**
 - **R1** — deliberate, named exception (see above).
@@ -368,3 +375,21 @@ verbs = ["get"]
 - **R9** — does not apply; there's no JSON object returned to prune, the whole point is that structured content never reaches the response.
 - **R11** — kubectl still does all cluster communication; only the wire-format base64 decode happens in Python, not a parallel API client.
 - **Error contract (§7)** — needs new error cases beyond the existing `kubectl_failure`/`namespace_invalid`: a path-safety rejection, a file-already-exists-without-overwrite rejection, and a file-write failure (permission denied, parent directory missing) each need their own clear error code rather than a generic wrapped exception.
+
+### FR10. `src_file` — apply a manifest from a local file, never through model context
+
+**Motivation.** FR9 lets a caller read a Secret to a file without its content passing through the model. There is currently no symmetric way back in: `k_apply`'s only input is `manifest: str`, always supplied inline, always therefore part of the model's context. The natural round trip this breaks — read a Secret to a file (FR9), edit it out-of-band, apply the edited file back — currently requires the model to see the full content at the apply step even if FR9 kept it out at the read step. `src_file` closes that gap: an alternative way to supply `k_apply`'s manifest, sourced from a file on the server's filesystem instead of an inline string.
+
+**Proposed shape:**
+- Add `src_file: str | None = None` to `k_apply`. Exactly one of `manifest` or `src_file` must be set — both or neither is a fail-fast `invalid_manifest` error (reusing the existing error code rather than adding a fourth near-duplicate "malformed apply input" category; this is the same class of problem as today's empty/missing-`kind` checks, just a different specific cause).
+- Path safety: `src_file` must be an absolute path — identical rule and identical reasoning to FR9's `dst_secret_file` check (a relative path's target depends on the server process's CWD, invisible to the caller), reusing the same `unsafe_path` error helper FR9 already added rather than inventing a parallel one.
+- Read: open `src_file`, read its full text content, and feed that string into the *exact same* `_parse_manifest()` → `resolve()` → `validate()` → kubectl pipeline `manifest` already uses today. No new kubectl invocation shape, no parallel validation path — the only thing that changes is where the string comes from.
+- New error: a `file_read_failed` case (file missing, unreadable, permission denied) — mirrors FR9's `file_write_failed`, fail-fast before `_parse_manifest()` is ever called.
+- **Scope boundary:** `k_patch` does not get `src_file` in this FR — its `patch` param is typically a small patch document, not a full manifest, and the user's request was specifically about `apply`. A `src_file` on `k_patch` is a plausible future companion but out of scope here unless requested separately, matching FR9's own precedent for naming what's deliberately not included.
+
+**Related finding, surfaced while designing this FR — flagging, not silently bundling into scope.** `output/pruning.py`'s `prune()` has **no special handling for `Secret` resources at all** — confirmed by reading the file. This means `k_get`, `k_apply`, `k_patch`, and `k_delete` already return a Secret's full base64-encoded `.data` map verbatim in their responses today, for *any* Secret fetch or mutation, `src_file` or not. This directly undercuts the motivation behind both this FR and FR9: there's no point routing a Secret's content around the model at the `apply` step if the response from that same `apply` call echoes the resulting object's `.data` field straight back. This is a real, pre-existing gap in already-shipped behavior (not something `src_file` introduces), and it's tracked separately as a proposed R9 extension in `KNOWN_ISSUES.md` rather than folded into this FR, since fixing pruning's Secret-handling is a broader, differently-scoped change (touches every tool that can return a Secret, not just `k_apply`) than adding one new param to one tool.
+
+**Interaction with existing rules:**
+- **R8** — fail-fast placement matches every other new check this session: validate `src_file`/`manifest` mutual exclusivity and path safety before `resolve()`/kubectl.
+- **R9** — not touched by this FR directly; see the related-finding note above for why it matters anyway.
+- **R11** — reading a local file with stdlib `open()` is not a new kubectl-invocation shape; the manifest still reaches kubectl exactly the way it does today, just sourced differently.
