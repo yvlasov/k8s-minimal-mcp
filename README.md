@@ -103,11 +103,13 @@ Set `$KUBECONFIG` before starting the server if you need a non-default file.
 | `k_describe` | Describe a resource | readonly |
 | `k_list_contexts` | List kubeconfig contexts | readonly |
 | `k_list_resources` | List available resource types (name, kind, api_version, namespaced, verbs) | readonly |
+| `k_auth_can_i` | Check effective RBAC permissions via kubectl auth can-i | readonly |
 | `k_apply` | Apply a manifest | readwrite |
 | `k_patch` | Patch a resource | readwrite |
 | `k_delete` | Delete resources | readwrite |
 | `k_exec` | Execute commands in a pod | admin |
 | `k_get_secret_to_file` | Decode a Secret and write it to a file on the server's filesystem — values never appear in the response | admin |
+| `k_get_helm_release` | Decode a Helm release's storage Secret into chart metadata | admin |
 
 All tools accept `context` (kubeconfig context name) as a required parameter.
 
