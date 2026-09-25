@@ -237,3 +237,29 @@ class TestHandleAuthCanI:
 
         assert result["success"] is True
         assert result["data"]["allowed"] is True
+
+    @patch("src.k8s_mcp.tools.auth_can_i.run_kubectl")
+    def test_dispatch_path_no_verb_collision(self, mock_run):
+        """Issue 40 (part 2): _dispatch() verb param must not collide with RBAC verb arg."""
+        mock_run.return_value = {
+            "stdout": "allowed\n",
+            "stderr": "",
+            "returncode": 0,
+            "command": ["kubectl", "--context", "test", "auth", "can-i", "get", "pods"],
+        }
+
+        from src.k8s_mcp.server import _dispatch
+        from src.k8s_mcp.tools.auth_can_i import handle_auth_can_i
+
+        result = _dispatch(
+            "auth_can_i",
+            handle_auth_can_i,
+            "test-context",
+            None,  # discovery_cache
+            None,  # allow_namespaces
+            verb="get",
+            resource="pods",
+        )
+
+        assert result["success"] is True
+        assert result["data"]["allowed"] is True

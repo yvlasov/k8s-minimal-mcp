@@ -45,7 +45,7 @@ _SHIP_EXEC = True      # TBD — ship k_exec at admin for now
 
 
 def _dispatch(
-    verb: str,
+    tool_verb: str,
     handler,
     context: str,
     discovery_cache: DiscoveryCache,
@@ -62,12 +62,12 @@ def _dispatch(
                                 detail=f"namespace '{ns}' not in allowlist")
         err["context"] = context
         from .output import envelope
-        return envelope(err, context, f"k_{verb}", success=False)
+        return envelope(err, context, f"k_{tool_verb}", success=False)
 
     # Audit log for mutating calls
-    if verb in ("apply", "patch", "delete", "exec"):
+    if tool_verb in ("apply", "patch", "delete", "exec"):
         resource_name = kwargs.get("name", kwargs.get("resource", kwargs.get("pod", "?")))
-        logger.info("MUTATE: context=%s verb=%s %s", context, verb, resource_name)
+        logger.info("MUTATE: context=%s verb=%s %s", context, tool_verb, resource_name)
 
     # Pass discovery_cache to handler
     kwargs["discovery_cache"] = discovery_cache
