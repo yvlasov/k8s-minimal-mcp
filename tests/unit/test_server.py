@@ -182,10 +182,10 @@ _TOOL_DEFINITIONS: list[tuple[str, str, dict]] = [
 # Verbs that are available at each access level (from access.py _VERB_MAP)
 _ACCESS_TOOLS: dict[AccessLevel, list[str]] = {
     AccessLevel.READONLY: [
-        "list_resources", "get", "get_helm_release", "auth_can_i", "logs", "describe",
+        "list_resources", "get", "auth_can_i", "logs", "describe",
     ],
     AccessLevel.READWRITE: [
-        "list_resources", "get", "get_helm_release", "auth_can_i", "logs", "describe",
+        "list_resources", "get", "auth_can_i", "logs", "describe",
         "apply", "patch", "delete",
     ],
     AccessLevel.ADMIN: [

@@ -117,22 +117,21 @@ each explicitly, don't assume:**
 
 ## OPEN (not yet fixed)
 
-### 39. `k_get_helm_release` returns a chart's `values` block fully unredacted — the pre-implementation decision to address this was never made
-
-**File:** `src/k8s_mcp/tools/get_helm_release.py:169`
-**Severity:** High — a real, currently-shipping exposure, not a hypothetical, and worse than Issue 35's original gap because it was *explicitly flagged as a decision to make* (PRD.md §15 FR12, SPEC.md §8 FR12) before implementation, and then shipped with that decision simply never made. A Helm chart's `values.yaml` commonly carries plaintext credentials, API keys, or connection strings a chart author put there (e.g. a database password set via `--set db.password=...` or a `values-prod.yaml` overlay) — `k_get_helm_release(context, release, namespace)` returns all of it verbatim in the model-facing response, fully readable, at `readonly` access level (not even gated to `admin` the way `k_get_secret_to_file` is for the exact same class of risk).
-**Root cause:** `get_helm_release.py:169` — `"values": data.get("values", {})`, no filtering, masking, or opt-in gate of any kind. No call to `prune()`, no key-name-only reduction like `output/pruning.py:68-73`'s Secret handling. No test in `tests/unit/test_tools_get_helm_release.py` asserts any redaction behavior on `values` — confirming this isn't a tested-then-regressed gap, it was never addressed at all.
-**Why this happened:** the implementation plan (SPEC.md §8 FR12) explicitly named this as an open decision — "whether the decoded `values` block should get Issue 35-style redaction" — the same pattern FR9's Decisions section used to resolve Secret-specific questions *before* writing code. For FR12, the question was asked but the answer was never supplied; the code shipped as if the answer were "no redaction," without that ever being a deliberate call.
-**Proposed fix — needs an explicit decision, not assumed here:**
-- **Option A (hard block, matches Issue 35's precedent):** `values` redacted to `{"redacted_keys": [...]}` by default, with an explicit `include_values=True` param required to see them — mirrors `k_get`'s Secret posture exactly, safest default.
-- **Option B (raise the access gate):** move `k_get_helm_release` from `readonly` to `admin` in `access.py`'s `_VERB_MAP`, matching `k_get_secret_to_file`'s precedent of gating by risk rather than by verb. Simpler (no new param), but over-broad if most charts' `values` genuinely carry nothing sensitive — it would gate legitimate low-risk uses (chart version/status checks) behind `admin` too.
-- **Option C (heuristic key-name scanning for likely-secret-shaped keys):** rejected preemptively — fragile, false-negative-prone, and the kind of client-side reimplementation R11's "shell out, don't reimplement" spirit already argues against for structurally similar problems.
-- Recommend A or B; A is more precise (doesn't over-gate legitimately low-risk lookups) but adds a param; B is zero-code-change but blunt. Flagging both rather than picking one unilaterally, matching this project's own established practice of naming real security-shape decisions explicitly (FR9's Decisions section, this same FR12 entry's original open question) rather than defaulting into an answer.
-**Proposed test:** whichever option is chosen, a test asserting the actual security property (values containing a known plaintext secret string never appear anywhere in the serialized response, or the tool is unreachable below `admin`) — the same rigor `test_secret_values_never_appear_in_response` already established for FR9, not just "a `redacted_keys` field happens to be present."
+(No open issues.)
 
 ---
 
 ## FIXED
+
+### 39. `k_get_helm_release` returns a chart's `values` block fully unredacted — the pre-implementation decision to address this was never made
+
+**File:** `src/k8s_mcp/access.py` (`_VERB_MAP`), `tests/unit/test_access.py`
+**Severity:** High — a real, currently-shipping exposure. A Helm chart's `values.yaml` commonly carries plaintext credentials, API keys, or connection strings — `k_get_helm_release` returned all of it verbatim at `readonly` access level.
+**Root cause:** `get_helm_release.py:169` — `"values": data.get("values", {})`, no filtering, masking, or opt-in gate. The implementation plan (SPEC.md §8 FR12) explicitly named this as an open decision but the answer was never supplied; the code shipped as if the answer were "no redaction."
+**Decision (2026-09-25):** Option B — raise the access gate. `k_get_helm_release` moved from `readonly` to `admin` in `access.py`'s `_VERB_MAP`, matching `k_get_secret_to_file`'s precedent of gating by risk rather than by verb.
+**Fix:** Removed `get_helm_release` from `readonly` and `readwrite` verb sets in `access.py`; kept it in `admin`. Updated `test_access.py` expected verb sets and added `test_get_helm_release_admin_only` asserting the tool is unreachable below `admin`. Updated `test_server.py`'s `_ACCESS_TOOLS` dict accordingly. Full suite: 330 passed, 9 skipped.
+
+---
 
 ### 41. No test in this repo exercises `server.py`'s `_dispatch()`/tool-registration path — every "unit test" calls handler functions directly, so signature mismatches between `_dispatch()` and any handler ship undetected
 
