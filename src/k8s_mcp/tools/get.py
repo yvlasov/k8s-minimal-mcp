@@ -93,7 +93,7 @@ def handle_get(
         return envelope(validation, context, "k_get", success=False)
 
     # Build kubectl args
-    args = ["get", resource_meta.canonical]
+    args = ["get", resource_meta.fully_qualified_name]
     if name and not all_namespaces:
         args.append(name)
     if namespace and not all_namespaces:

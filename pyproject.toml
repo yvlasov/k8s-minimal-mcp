@@ -13,6 +13,7 @@ authors = [{ name = "Iurii Vlasov" }]
 dependencies = [
     "fastmcp>=0.2",
     "pydantic>=2.6",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

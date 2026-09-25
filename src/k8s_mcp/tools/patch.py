@@ -69,7 +69,7 @@ def handle_patch(
         return envelope(validation, context, "k_patch", success=False)
 
     # Build kubectl args
-    args = ["patch", resource_meta.canonical, name]
+    args = ["patch", resource_meta.fully_qualified_name, name]
     if namespace:
         args.extend(["-n", namespace])
     args.extend(["--type", type])

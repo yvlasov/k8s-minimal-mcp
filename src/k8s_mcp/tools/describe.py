@@ -37,7 +37,7 @@ def handle_describe(
         return envelope(validation, context, "k_describe", success=False)
 
     # Build kubectl args
-    args = ["describe", resource_meta.canonical, name]
+    args = ["describe", resource_meta.fully_qualified_name, name]
     if namespace:
         args.extend(["-n", namespace])
 

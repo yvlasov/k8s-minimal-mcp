@@ -163,3 +163,41 @@ class TestHandlePatchOutputFormat:
 
         assert result["success"] is True
         assert result["data"]["jsonpath_template"] == "{.status.readyReplicas}{.metadata.name}"
+
+
+class TestHandlePatchFullyQualifiedResource:
+    """Issue 38: group-qualified resource names must reach kubectl."""
+
+    @patch("src.k8s_mcp.tools.patch.resolve")
+    @patch("src.k8s_mcp.tools.patch.run_kubectl_checked")
+    def test_groupful_resource_uses_fully_qualified_name(self, mock_run, mock_resolve):
+        node_metrics_meta = ResourceMeta(
+            canonical="nodes",
+            shortnames=[],
+            kind="NodeMetrics",
+            group="metrics.k8s.io",
+            version="v1beta1",
+            namespaced=False,
+            verbs=["get", "patch", "list"],
+        )
+        mock_resolve.return_value = node_metrics_meta
+        mock_run.return_value = {"stdout": '{"kind": "NodeMetrics", "metadata": {"name": "my-node"}}'}
+
+        result = handle_patch("test-context", "nodes.metrics.k8s.io", "my-node", '{"usage": {"cpu": "100m"}}')
+
+        assert result["success"] is True
+        args = mock_run.call_args[0][1]
+        assert args[1] == "nodes.metrics.k8s.io"
+
+    @patch("src.k8s_mcp.tools.patch.resolve")
+    @patch("src.k8s_mcp.tools.patch.run_kubectl_checked")
+    def test_groupful_resource_uses_fully_qualified_name_with_namespace(self, mock_run, mock_resolve, deployment_meta):
+        mock_resolve.return_value = deployment_meta
+        mock_run.return_value = {"stdout": '{"kind": "Deployment", "metadata": {"name": "test"}}'}
+
+        result = handle_patch("test-context", "deployments", "my-deploy", '{"spec": {"replicas": 3}}',
+                              namespace="default")
+
+        assert result["success"] is True
+        args = mock_run.call_args[0][1]
+        assert args[1] == "deployments.apps"

@@ -41,7 +41,7 @@ def handle_delete(
         return envelope(validation, context, "k_delete", success=False)
 
     # Build kubectl args
-    args = ["delete", resource_meta.canonical]
+    args = ["delete", resource_meta.fully_qualified_name]
     if name:
         args.append(name)
     elif label_selector:

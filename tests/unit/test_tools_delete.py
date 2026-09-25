@@ -150,3 +150,49 @@ class TestHandleDelete:
 
         assert result["success"] is False
         assert result["error"] == "access_denied"
+
+
+class TestHandleDeleteFullyQualifiedResource:
+    """Issue 38: group-qualified resource names must reach kubectl."""
+
+    @patch("src.k8s_mcp.tools.delete.resolve")
+    @patch("src.k8s_mcp.tools.delete.run_kubectl_checked")
+    def test_groupful_resource_uses_fully_qualified_name(self, mock_run, mock_resolve):
+        node_metrics_meta = ResourceMeta(
+            canonical="nodes",
+            shortnames=[],
+            kind="NodeMetrics",
+            group="metrics.k8s.io",
+            version="v1beta1",
+            namespaced=False,
+            verbs=["get", "list", "delete"],
+        )
+        mock_resolve.return_value = node_metrics_meta
+        mock_run.return_value = {"stdout": "nodes.metrics.k8s.io deleted"}
+
+        result = handle_delete("test-context", "nodes.metrics.k8s.io", name="my-node")
+
+        assert result["success"] is True
+        args = mock_run.call_args[0][1]
+        assert args[1] == "nodes.metrics.k8s.io"
+
+    @patch("src.k8s_mcp.tools.delete.resolve")
+    @patch("src.k8s_mcp.tools.delete.run_kubectl_checked")
+    def test_groupful_resource_uses_fully_qualified_name_with_namespace(self, mock_run, mock_resolve):
+        deploy_meta = ResourceMeta(
+            canonical="deployments",
+            shortnames=["deploy"],
+            kind="Deployment",
+            group="apps",
+            version="v1",
+            namespaced=True,
+            verbs=["get", "apply", "patch", "delete", "list"],
+        )
+        mock_resolve.return_value = deploy_meta
+        mock_run.return_value = {"stdout": "deployment.apps/my-deploy deleted"}
+
+        result = handle_delete("test-context", "deployments", name="my-deploy", namespace="default")
+
+        assert result["success"] is True
+        args = mock_run.call_args[0][1]
+        assert args[1] == "deployments.apps"

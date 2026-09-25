@@ -87,3 +87,40 @@ class TestHandleDescribe:
 
         assert result["success"] is False
         assert result["error"] == "pod_not_found"
+
+
+class TestHandleDescribeFullyQualifiedResource:
+    """Issue 38: group-qualified resource names must reach kubectl."""
+
+    @patch("src.k8s_mcp.tools.describe.resolve")
+    @patch("src.k8s_mcp.tools.describe.run_kubectl_checked")
+    def test_groupful_resource_uses_fully_qualified_name(self, mock_run, mock_resolve):
+        node_metrics_meta = ResourceMeta(
+            canonical="nodes",
+            shortnames=[],
+            kind="NodeMetrics",
+            group="metrics.k8s.io",
+            version="v1beta1",
+            namespaced=False,
+            verbs=["get", "list"],
+        )
+        mock_resolve.return_value = node_metrics_meta
+        mock_run.return_value = {"stdout": "Name:         my-node\n"}
+
+        result = handle_describe("test-context", "nodes.metrics.k8s.io", name="my-node")
+
+        assert result["success"] is True
+        args = mock_run.call_args[0][1]
+        assert args == ["describe", "nodes.metrics.k8s.io", "my-node"]
+
+    @patch("src.k8s_mcp.tools.describe.resolve")
+    @patch("src.k8s_mcp.tools.describe.run_kubectl_checked")
+    def test_groupless_resource_uses_plain_canonical(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "Name:         mypod\n"}
+
+        result = handle_describe("test-context", "pods", name="mypod", namespace="default")
+
+        assert result["success"] is True
+        args = mock_run.call_args[0][1]
+        assert args == ["describe", "pods", "mypod", "-n", "default"]
