@@ -80,6 +80,8 @@ def handle_auth_can_i(
     as_user: str | None = None,
     as_group: list[str] | None = None,
     list_all: bool = False,
+    *,
+    discovery_cache: object | None = None,
 ) -> dict[str, Any]:
     """Handle k_auth_can_i: single-check or --list mode.
 

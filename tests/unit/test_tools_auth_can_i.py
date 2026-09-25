@@ -222,3 +222,18 @@ class TestHandleAuthCanI:
 
         assert result["success"] is True
         assert result["data"]["command"] == ["kubectl", "--context", "test", "auth", "can-i", "--list"]
+
+    @patch("src.k8s_mcp.tools.auth_can_i.run_kubectl")
+    def test_discovery_cache_accepted(self, mock_run):
+        """Issue 40: discovery_cache kwarg must be accepted (never used, but _dispatch() always passes it)."""
+        mock_run.return_value = {
+            "stdout": "allowed\n",
+            "stderr": "",
+            "returncode": 0,
+            "command": ["kubectl", "--context", "test", "auth", "can-i", "get", "pods"],
+        }
+
+        result = handle_auth_can_i("test-context", verb="get", resource="pods", discovery_cache=None)
+
+        assert result["success"] is True
+        assert result["data"]["allowed"] is True

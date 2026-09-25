@@ -119,11 +119,13 @@ each explicitly, don't assume:**
 
 ### 40. `k_auth_can_i` crashes on every real call — `handle_auth_can_i()` doesn't accept the `discovery_cache` kwarg `_dispatch()` always passes
 
-**File:** `src/k8s_mcp/tools/auth_can_i.py:74-83` (signature), `src/k8s_mcp/server.py:73-74` (`_dispatch()`)
+**File:** `src/k8s_mcp/tools/auth_can_i.py:74-84` (signature), `src/k8s_mcp/server.py:73-74` (`_dispatch()`)
 **Severity:** Critical — not a hypothetical, a total functional break of every real invocation. `server.py`'s `_dispatch()` does `kwargs["discovery_cache"] = discovery_cache; return handler(context, **kwargs)` unconditionally for every dispatched tool (`server.py:73-74`). `handle_auth_can_i(context, verb=None, resource=None, name=None, namespace=None, as_user=None, as_group=None, list_all=False)` (`auth_can_i.py:74-83`) has no `discovery_cache` parameter at all — unlike `handle_get_helm_release`, which accepts `discovery_cache: DiscoveryCache | None = None` as a keyword-only param even though it doesn't use it (`get_helm_release.py:87`). Confirmed live: calling `k_auth_can_i` through the actual server raises `TypeError: handle_auth_can_i() got an unexpected keyword argument 'discovery_cache'`.
 **Why this shipped despite 14 passing tests:** every test in `tests/unit/test_tools_auth_can_i.py` calls `handle_auth_can_i(...)` directly, bypassing `_dispatch()`/`server.py` entirely — matching every other FR's test pattern this whole session. No test anywhere in the repo exercises the actual dispatch/registration path (confirmed: `grep -rln "_dispatch" tests/` returns nothing). This is the structural gap Issue 41 (below) fixes permanently; this issue is the immediate, mechanical fix for this one tool.
 **Proposed fix:** add `*, discovery_cache: DiscoveryCache | None = None` to `handle_auth_can_i()`'s signature, matching `get_helm_release.py:87`'s exact precedent (the function doesn't need to use it — `k_auth_can_i` never calls `resolve()` — it just needs to accept and ignore it, same as `get_helm_release.py` does for the params it doesn't touch). One-line, mechanical, no other logic change.
 **Proposed test:** a test that calls through `_dispatch()` (or at minimum passes `discovery_cache=<anything>` directly to `handle_auth_can_i()`) and asserts no `TypeError` — the exact case the existing 14 tests never covered.
+**Fix:** Added `*, discovery_cache: object | None = None` to `handle_auth_can_i()`'s signature, matching `get_helm_release.py:87`'s exact precedent. Added test `test_discovery_cache_accepted` that passes `discovery_cache=None` directly and asserts no `TypeError`.
+**Verified (2026-09-25):** confirmed `auth_can_i.py:84` has `discovery_cache: object | None = None` as keyword-only param. 304 tests pass (303 + 1 new). Committed as `<commit-hash>`.
 
 ---
 
