@@ -762,12 +762,7 @@ then leave everything downstream of that untouched.
 
 ### FR11. Built-in MCP prompts for ArgoCD/Cilium status (PRD §15 FR11)
 
-**Status: Proposed, not started.** Technical claims below verified (2026-09-25) against this
-project's actual environment before promotion into this document — `fastmcp==4.0.4`'s
-`FastMCP.prompt(name_or_fn=None, *, name=None, version=None, title=None, description=None,
-icons=None, tags=None, meta=None, auth=None)` signature confirmed real via
-`inspect.signature()`, not fabricated; `add_prompt`/`list_prompts`/`get_prompt`/
-`render_prompt` all confirmed present on `FastMCP`.
+**Status: Implemented and committed** (`tests/unit/test_prompts.py`, 12 tests; full suite 276 passed).
 
 - **New module `src/k8s_mcp/prompts.py`** — one function per prompt, each returning a single
   formatted `str` that embeds the literal tool-call shape (exact `resource=` string, exact
@@ -793,7 +788,7 @@ icons=None, tags=None, meta=None, auth=None)` signature confirmed real via
   outside the `if "get" in allowed:`-style gating blocks — unconditional, per PRD §15 FR11's
   R7 reasoning (a prompt performs no cluster access itself; the tool calls it recommends
   still pass the normal gate when actually issued).
-- **Tests** — new `tests/unit/test_prompts.py`, one test per prompt asserting the returned
+- **Tests** — `tests/unit/test_prompts.py` — one test per prompt asserting the returned
   string contains the exact `resource=` value and the exact status-field path it claims to
   reference, so a future rename doesn't silently drift the prompt text out of sync with
   reality (the same drift class Issue 22 flags for PRD.md, applied here to prompt content).

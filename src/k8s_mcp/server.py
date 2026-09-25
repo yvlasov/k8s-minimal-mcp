@@ -181,6 +181,22 @@ def main(argv: list[str] | None = None) -> None:
                              overwrite=overwrite)
 
     logger.info("Registered tools for access level %s", access_level.value)
+
+    # Register prompts (unconditional — prompts perform no cluster access)
+    from .prompts import argocd_app_health, cilium_troubleshoot_connectivity, rbac_effective_permissions
+
+    @app.prompt(name="argocd_app_health", description="Check ArgoCD Application sync and health status")
+    def prompt_argocd_app_health(name: str, namespace: str) -> str:
+        return argocd_app_health(name, namespace)
+
+    @app.prompt(name="cilium_troubleshoot_connectivity", description="Troubleshoot pod-to-service connectivity with Cilium")
+    def prompt_cilium_troubleshoot_connectivity(namespace: str, pod: str) -> str:
+        return cilium_troubleshoot_connectivity(namespace, pod)
+
+    @app.prompt(name="rbac_effective_permissions", description="Check effective RBAC permissions for a user")
+    def prompt_rbac_effective_permissions(as_user: str, namespace: str) -> str:
+        return rbac_effective_permissions(as_user, namespace)
+
     logger.info("Running FastMCP server...")
     app.run()
 

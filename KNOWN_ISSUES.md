@@ -57,7 +57,9 @@ SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the 
 
 **Verified (2026-09-25), before promotion into PRD/SPEC:** `fastmcp==4.0.4`'s `FastMCP.prompt(...)` signature confirmed real via `inspect.signature()` against this project's own environment, not fabricated. R7's access-gating rationale confirmed consistent with unconditional prompt registration (gating governs tools that act on the cluster; a prompt doesn't).
 
-**Status:** proposed, not started.
+**Status:** implemented, unit-tested, and committed (`tests/unit/test_prompts.py`, 12 tests; full suite 276 passed).
+
+**Verified (2026-09-25):** confirmed `fastmcp`'s `FastMCP.prompt(...)` signature real via `inspect.signature()` against this project's own environment. R7's access-gating rationale confirmed consistent with unconditional prompt registration. Committed as part of this session.
 
 ---
 
