@@ -64,7 +64,7 @@ An MCP server exposing a small, fixed set of verb-based tools, parameterized by 
 
 **R5. The discovery cache is keyed and refreshed independently per context.**
 
-**R6. Ambiguous resource-name matches are never auto-resolved.** Core-table entries win by default. Remaining collisions return all candidates and require qualification via `resource.group`. `resource` also accepts the fully-qualified `name.group` form directly as an escape hatch.
+**R6. Ambiguous resource-name matches are never auto-resolved.** Core-table entries win by default. Remaining collisions return all candidates and require qualification via `resource.group`. `resource` also accepts the fully-qualified `name.group` form directly as an escape hatch. **The resolved `group` must reach the actual kubectl invocation, not just internal resolution** — a caller who qualifies `resource` to disambiguate a canonical-name collision (e.g. `nodes.metrics.k8s.io` vs. the core `nodes`) gets no benefit from that qualification if the tool then builds its kubectl command from the bare canonical name alone, since kubectl's own cross-group tie-break silently wins instead. This reintroduces the exact ambiguity R6 exists to prevent, just one layer downstream of `resolve()` (see `KNOWN_ISSUES.md` Issue 38).
 
 **R7. Mutating capability is gated at server startup by access level, with tools filtered at registration time.** Levels: `readonly` (default) → `get`, `logs`, `describe`; `readwrite` → adds `apply`, `patch`, `delete`; `admin` → adds `exec`. The model never sees tools outside its level, so it cannot attempt them, cannot argue past them, and spends no schema tokens on them. `dry_run` remains available as an optional per-call parameter but is **not** the enforcement mechanism.
 

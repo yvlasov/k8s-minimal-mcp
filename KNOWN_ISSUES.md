@@ -61,6 +61,73 @@ SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the 
 
 ---
 
+### 38. Resolved `group`-qualification is discarded before reaching kubectl — canonical-name collisions (`nodes` vs. `metrics.k8s.io`'s `NodeMetrics`, and `pods`/`events` similarly) silently execute against the wrong API group
+
+**Root cause confirmed (2026-09-25) — see full analysis below; original title described the symptom (`metrics.k8s.io` unreachable via `k_get`), retitled once the actual mechanism (resolve→execute boundary, affects 4 tools) was isolated.**
+
+**Reported live against a real cluster** (`sinsia-pl`, `k8s-mcp` reached via an MCP client, not this repo's test suite) while comparing this server's coverage against a different, broader kubectl-wrapper MCP server that has a dedicated `get_node_metrics` tool. That other server's tool returns real per-node CPU/memory usage (`cpuUsage`/`cpuPercent`/`memoryUsage`/`memoryPercent`); this project's `k_get` was expected to reach the same data generically via the `metrics.k8s.io` API, since `k_list_resources` confirms the resource is discoverable.
+
+**Step 1 — confirm the resource is discoverable:**
+```
+k_list_resources(context="sinsia-pl", search="metrics")
+```
+returned, among the results:
+```json
+{"name":"nodes","shortnames":[],"kind":"NodeMetrics","api_version":"metrics.k8s.io/v1beta1","namespaced":false,"verbs":["get","list"]}
+```
+
+**Step 2 — attempt via group-qualified dotted syntax (real kubectl CLI syntax, `kubectl get nodes.metrics.k8s.io`):**
+```
+k_get(context="sinsia-pl", resource="nodes.metrics.k8s.io", output="wide")
+```
+returned a plain `kubectl get nodes -o wide` table — core `Node` fields, no usage data:
+```
+NAME                            STATUS   ROLES    AGE    VERSION    INTERNAL-IP     ...
+sinsia-prelive-aida-node-0      Ready    <none>   121d   v1.30.14   10.226.230.12   ...
+```
+(No CPU/MEMORY columns — this is the exact same table `kubectl get nodes -o wide` produces, not `kubectl top nodes`.)
+
+**Step 3 — attempt via exact `kind` string from Step 1's own output:**
+```
+k_get(context="sinsia-pl", resource="NodeMetrics", name="sinsia-prelive-node-0", output="yaml")
+```
+returned, in full:
+```yaml
+apiVersion: v1
+kind: Node
+metadata:
+  annotations:
+    csi.volume.kubernetes.io/nodeid: ...
+  name: sinsia-prelive-node-0
+spec:
+  podCIDR: 10.245.2.0/24
+status:
+  addresses:
+  - address: 10.226.230.4
+    type: InternalIP
+  allocatable:
+    cpu: '64'
+  ...
+  nodeInfo:
+    ...
+```
+— the full core `v1 Node` object (`podCIDR`, `nodeInfo`, `images`, `volumesAttached`, etc.), not a `metrics.k8s.io/v1beta1 NodeMetrics` object (which would have a minimal `{metadata, timestamp, window, usage: {cpu, memory}}` shape and no `spec`/`status`/`podCIDR` at all). Confirms resolution landed on the core `Node` `ResourceMeta`, not the discovery-cache `NodeMetrics` entry from Step 1.
+
+**File:** `src/k8s_mcp/tools/get.py:96`, `delete.py:44`, `describe.py:40`, `patch.py:72` (root cause); `src/k8s_mcp/resolution/resolver.py`/`models.py` (cleared — see below)
+**Severity:** Medium-High, reclassified after investigation — worse than "feature unreachable": the tool **silently returns the wrong object with success=true**, no error, no indication of the mismatch. A caller asking for `NodeMetrics` gets a full core `Node` object back and would have to notice the shape is wrong themselves. Confirmed to also affect `pods`/`metrics.k8s.io` `PodMetrics` and `events`/`events.k8s.io` `Event` — same canonical-name collision pattern, not `nodes`-specific.
+
+**Root cause — confirmed via a real repro test against `resolve()` (not a mock), not the reporter's static trace alone:** the reporter's trace on `ResourceMeta.matches()`/`resolver.py::resolve()` was **correct** — resolution itself works exactly as designed. `resolve(ctx, "nodes.metrics.k8s.io", ...)` and `resolve(ctx, "NodeMetrics", ...)` both correctly return the discovery-cache's `ResourceMeta(canonical="nodes", kind="NodeMetrics", group="metrics.k8s.io", version="v1beta1")` — core_matches is `[]` for both queries, no ambiguity is ever hit, R6 is honored at the resolution layer.
+
+**The bug is one layer downstream, at the resolve→execute boundary.** `tools/get.py:96` builds the kubectl command as `args = ["get", resource_meta.canonical]` — using bare `.canonical` (`"nodes"`) and discarding `.group`/`.version` entirely. Since `canonical` is `"nodes"` regardless of which `ResourceMeta` won resolution, the actual command run is always `kubectl get nodes ...` — unqualified. Real kubectl's own RESTMapper then disambiguates the unqualified plural across API groups by its own priority order (preferring the legacy/core group), silently returning the core `v1 Node` — exactly matching both live repro steps in this issue. The server's own correct internal resolution has zero effect on the command actually executed. This is systemic, not `get.py`-specific: `delete.py:44`, `describe.py:40`, and `patch.py:72` all build their kubectl resource argument from bare `resource_meta.canonical` the same way.
+
+**R2/R6 assessment:** not a violation of either rule as literally written — `resolve()` behaves exactly as designed, no false ambiguity, no auto-resolved collision. But it defeats R6's stated *purpose*: R6's escape hatch is "require qualification via `resource.group`" — the caller in this issue *did* qualify (`"nodes.metrics.k8s.io"`), `resolve()` *did* use that qualification to pick the correct entry, but the qualification's payload (`group`) is discarded before reaching kubectl, so the escape hatch produces no observable effect. PRD's R6 text has been amended to make this resolve→execute requirement explicit (see PRD.md §5).
+
+**Proposed fix:** in `get.py:96`, `delete.py:44`, `describe.py:40`, and `patch.py:72`, replace `resource_meta.canonical` with `resource_meta.fully_qualified_name` when building the kubectl resource argument. `fully_qualified_name` already collapses to plain `canonical` when `group == ""` (the overwhelming majority of core-table entries — zero behavior change there) and returns `f"{canonical}.{group}"` when `group` is set, which is valid `kubectl get TYPE.GROUP` syntax. Result: `resolve(ctx, "nodes.metrics.k8s.io", ...)` → `kubectl get nodes.metrics.k8s.io` (reaches the real metrics object); `resolve(ctx, "nodes", ...)` → still plain `kubectl get nodes` (R2's tie-break unaffected for the bare/unqualified query). The bare-kind query `"NodeMetrics"` needs no separate fix — it already resolves to exactly one entry (no kind-collision exists) and is fixed by the same change once its resolved `ResourceMeta` correctly carries `group="metrics.k8s.io"` through to execution.
+
+**Proposed test plan:** following `tests/unit/test_tools_get.py`'s existing convention (mock `resolve`/`run_kubectl_checked`, inspect `mock_run.call_args`): a test where mocked `resolve()` returns `ResourceMeta(canonical="nodes", kind="NodeMetrics", group="metrics.k8s.io", version="v1beta1", ...)` asserting `args == ["get", "nodes.metrics.k8s.io"]` (fails today, currently produces `["get", "nodes"]`); a companion test with `group=""` asserting `args == ["get", "nodes"]` unchanged (regression guard for R2's tie-break). Mirror both for `delete.py`, `describe.py`, `patch.py`. In `tests/unit/test_resolver.py`, add a case with a discovery cache populated with a `NodeMetrics`/`group="metrics.k8s.io"` entry asserting `resolve()` picks it for both `"nodes.metrics.k8s.io"` and `"NodeMetrics"` — documents that resolution itself was never the defect, guarding against a future regression there specifically.
+
+---
+
 ## FIXED
 
 ### 35. `prune()` had no `Secret`-specific handling — `k_get`/`k_apply`/`k_patch`/`k_delete` all returned a Secret's full `.data` map verbatim
