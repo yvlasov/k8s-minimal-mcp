@@ -246,3 +246,40 @@ class TestHandleApplySrcFile:
         assert result["success"] is False
         assert result["error"] == "file_read_failed"
         assert result["path"] == "/nonexistent/absolute/path.yaml"
+
+
+class TestHandleApplyYamlErrorDetail:
+    @patch("src.k8s_mcp.tools.apply.resolve")
+    def test_invalid_yaml_produces_detailed_error(self, mock_resolve, deployment_meta):
+        mock_resolve.return_value = deployment_meta
+
+        # Unbalanced brackets + bad YAML — invalid as JSON and YAML
+        manifest = "{kind: Deployment\n  [unclosed"
+        result = handle_apply("test-context", manifest)
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_manifest"
+        detail = result.get("detail", "")
+        assert "not valid JSON or YAML" in detail
+        assert "manifest is empty or invalid" not in detail
+
+    @patch("src.k8s_mcp.tools.apply.resolve")
+    def test_empty_manifest_still_generic_error(self, mock_resolve, deployment_meta):
+        mock_resolve.return_value = deployment_meta
+
+        result = handle_apply("test-context", "")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_manifest"
+        assert result["detail"] == "manifest is empty or invalid"
+
+    @patch("src.k8s_mcp.tools.apply.resolve")
+    @patch("src.k8s_mcp.tools.apply.run_kubectl_checked")
+    def test_valid_yaml_still_works(self, mock_run, mock_resolve, deployment_meta):
+        mock_resolve.return_value = deployment_meta
+        mock_run.return_value = {"stdout": '{"kind": "Deployment", "metadata": {"name": "test"}}'}
+
+        manifest = "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: test\n"
+        result = handle_apply("test-context", manifest, namespace="default")
+
+        assert result["success"] is True

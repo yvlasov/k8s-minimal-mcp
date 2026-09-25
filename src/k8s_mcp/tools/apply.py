@@ -28,24 +28,35 @@ from ..errors import (
 )
 
 
-def _parse_manifest(manifest: str) -> dict[str, Any]:
-    """Parse a JSON or YAML manifest string."""
+def _parse_manifest(manifest: str) -> tuple[dict[str, Any], str | None]:
+    """Parse a JSON or YAML manifest string.
+
+    Returns (parsed_data, yaml_error_detail).
+    yaml_error_detail is None on success; set when YAML parsing fails
+    with a specific error (JSON-only failure is not reported).
+    """
     # Try JSON first
     try:
-        return json.loads(manifest)
+        data = json.loads(manifest)
+        if isinstance(data, dict):
+            return data, None
     except json.JSONDecodeError:
         pass
 
     # Try YAML
     try:
-        import yaml
-        return yaml.safe_load(manifest)
+        import yaml  # noqa: F811
     except ImportError:
-        pass
-    except Exception:
-        pass
+        return {}, None
 
-    return {}
+    try:
+        data = yaml.safe_load(manifest)
+        if isinstance(data, dict):
+            return data, None
+    except yaml.YAMLError as e:
+        return {}, f"manifest is not valid JSON or YAML: {e}"
+
+    return {}, None
 
 
 def handle_apply(
@@ -109,11 +120,12 @@ def handle_apply(
 
     # Parse manifest to determine resource type for validation
     assert manifest_content is not None
-    manifest_data = _parse_manifest(manifest_content)
+    manifest_data, yaml_error = _parse_manifest(manifest_content)
 
     if not isinstance(manifest_data, dict) or not manifest_data:
+        detail = yaml_error if yaml_error else "manifest is empty or invalid"
         return envelope(
-            invalid_manifest(context, detail="manifest is empty or invalid"),
+            invalid_manifest(context, detail=detail),
             context, "k_apply", success=False,
         )
 

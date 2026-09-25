@@ -51,23 +51,7 @@ SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the 
 
 ## OPEN (not yet fixed)
 
-### 36. `apply.py`'s `_parse_manifest()` swallows all YAML parse errors via a bare `except Exception: pass`, losing diagnostic detail
-
-**File:** `src/k8s_mcp/tools/apply.py:31-48`
-**Severity:** Low/medium — not a correctness bug (a malformed manifest still correctly fails, via the `not isinstance(manifest_data, dict) or not manifest_data` check a few lines later in `handle_apply()`), but a code-quality regression flagged during FR10's review: the caller ends up with a generic `invalid_manifest(context, detail="manifest is empty or invalid")` regardless of *why* YAML parsing failed — a genuine YAML syntax error (bad indentation, unclosed quote, tab/space mix) produces the same uninformative message as a manifest that's simply empty. This is exactly the kind of information loss R8's whole "fail fast with a structured error, never surface a raw kubectl failure" philosophy exists to prevent — except here it's *our own* parser's error being discarded, not kubectl's.
-**Root cause:**
-```python
-try:
-    import yaml
-    return yaml.safe_load(manifest)
-except ImportError:
-    pass
-except Exception:
-    pass
-```
-`except Exception: pass` catches `yaml.YAMLError` (and anything else) indiscriminately and discards the exception object entirely — there's no path for the underlying message to reach the response.
-**Proposed fix:** narrow the second `except` to `yaml.YAMLError` specifically (matching this codebase's established pattern elsewhere of catching precise exception types, e.g. `apply.py`'s own `(OSError, UnicodeDecodeError)` for `src_file` reads), and thread the underlying error message into `handle_apply()`'s `invalid_manifest` call instead of the generic empty/invalid string — e.g. have `_parse_manifest()` raise a small internal exception (or return `(data, error_detail)`) that `handle_apply()` catches/unpacks to build a detail string like `f"manifest is not valid JSON or YAML: {yaml_error}"`.
-**Proposed test:** a manifest string that's invalid both as JSON and as YAML (e.g. unbalanced brackets plus bad YAML indentation) → `invalid_manifest`'s `detail` field contains the actual YAML parser's error text, not the generic empty/invalid message; existing empty-string and valid-manifest tests continue to pass unmodified.
+_None — all previously open issues are fixed._
 
 ---
 
@@ -79,6 +63,15 @@ except Exception:
 **Fix:** Added `Secret`-specific handling to `prune()`: when `kind == "Secret"`, `.data` and `.stringData` are replaced with `{"redacted_keys": sorted(keys)}` — key names only, never values. This applies uniformly across all four standard JSON paths (`k_get`, `k_apply`, `k_patch`, `k_delete`) since they all pass `kind=resource_meta.kind` into `prune()`. No opt-out parameter; this is a hard block matching R7/R8 safety-by-default posture. Callers needing values use `k_get_secret_to_file`.
 **Test:** Added 7 tests in `tests/unit/test_pruning.py` (`TestPruneSecretRedaction`) covering: `.data` redacted to `{"redacted_keys": [...]}`, `.stringData` redacted, both redacted simultaneously, empty `.data` unchanged, no `data` field unchanged, `kind=None` no redaction, non-Secret `.data` preserved.
 **Verified (2026-09-25):** confirmed hard-block (no `reveal_secrets`-style parameter exists anywhere in code or docs — grepped); confirmed all four call sites (`get.py`, `apply.py`, `patch.py`, `delete.py`) route through the same shared `prune()`, no per-tool duplication; confirmed `k_get_secret_to_file` (FR9) is unaffected — it never calls `prune()`, using its own separate decode/write path, so no double-encoding risk. Committed as `c223fb5`.
+
+---
+
+### 36. `apply.py`'s `_parse_manifest()` swallows all YAML parse errors via a bare `except Exception: pass`, losing diagnostic detail
+
+**File:** `src/k8s_mcp/tools/apply.py:31-48`
+**Fix:** Changed `_parse_manifest()` to return `(data, yaml_error_detail)` tuple. The `except Exception: pass` was replaced with `except yaml.YAMLError as e` (import moved to its own try/except for ImportError), and the error message is threaded into `handle_apply()`'s `invalid_manifest` call — e.g. `"manifest is not valid JSON or YAML: <yaml parser message>"`. Empty/invalid manifests without a YAML error still get the generic `"manifest is empty or invalid"` detail.
+**Test:** Added 3 tests in `tests/unit/test_tools_apply.py` (`TestHandleApplyYamlErrorDetail`): invalid YAML produces detail containing the YAML parser's error text; empty manifest still gets generic error; valid YAML continues to work.
+**Verified:** 256 tests pass (253 + 3 new). Confirmed directly — `_parse_manifest("bad: yaml\n[")` now returns `({}, "manifest is not valid JSON or YAML: ...")` and `handle_apply()` surfaces the YAML parser's actual error message in the `invalid_manifest` response detail.
 
 ---
 
