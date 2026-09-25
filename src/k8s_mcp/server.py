@@ -48,7 +48,7 @@ def _dispatch(
     tool_verb: str,
     handler,
     context: str,
-    discovery_cache: DiscoveryCache,
+    discovery_cache: DiscoveryCache | None,
     allow_namespaces: list[str] | None,
     **kwargs: Any,
 ) -> dict[str, Any]:

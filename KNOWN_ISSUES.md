@@ -117,17 +117,6 @@ each explicitly, don't assume:**
 
 ## OPEN (not yet fixed)
 
-### 41. No test in this repo exercises `server.py`'s `_dispatch()`/tool-registration path — every "unit test" calls handler functions directly, so signature mismatches between `_dispatch()` and any handler ship undetected
-
-**File:** `tests/` (structural gap — no single file), `src/k8s_mcp/server.py`
-**Severity:** High — this is the root cause that let Issue 40 ship with 14 passing tests and a "committed" status. First flagged as a residual gap under Issue 13, years-old-equivalent in this project's history ("no `tests/unit/test_server.py` was added... a future regression here wouldn't be caught by the suite") and explicitly marked "low priority, not re-blocking" at the time. Issue 40 is the predicted regression materializing.
-**Root cause:** `_dispatch()` (`server.py:45-73`) injects `discovery_cache` (and, for mutating verbs, does audit logging and namespace-allowlist checks) into every handler call via `**kwargs`. Nothing verifies that every registered handler's signature actually accepts what `_dispatch()` sends — a `**kwargs`-shaped handler would silently swallow the mismatch; a fully-typed one (this project's own established convention, per Issue 13's fix) raises `TypeError` at call time instead, which is strictly better (fails loud) but still only at call time, never at test time.
-**Proposed fix:** add `tests/unit/test_server.py` with one parametrized smoke test per access level (`readonly`/`readwrite`/`admin`) that builds the server via `main()`'s registration logic (or calls `_dispatch()` directly) for every tool name the access level should expose, with minimal valid mocked kwargs (mocking `resolve`/`run_kubectl`/`run_kubectl_checked` as needed, following each tool's own existing per-tool test fixtures), asserting the call completes without a `TypeError`/`AttributeError` from a kwarg mismatch. This directly closes Issue 13's residual gap and prevents this entire bug class (not just Issue 40) from recurring for any future tool.
-**Proposed test:** the fix *is* the test — `test_server.py` itself, run once per access level, covering every currently-registered tool (`k_list_contexts`, `k_get`, `k_get_helm_release`, `k_logs`, `k_apply`, `k_patch`, `k_delete`, `k_describe`, `k_exec`, `k_get_secret_to_file`, `k_auth_can_i`) plus the 3 prompts.
-**Confirmed still needed (2026-09-25):** Issue 40 needed two attempted fixes and a third independently-verified one before `k_auth_can_i` actually worked — the first attempt's own regression test called the handler directly instead of through `_dispatch()`, exactly the evasion this issue predicted, and it shipped a false "Verified" claim as a result. The eventual real fix (`c6d7e85`) only became trustworthy once checked by an actual live-server call, not by re-reading its diff or its own tests — because its own new test (`test_dispatch_path_no_verb_collision`) does call `_dispatch()` directly and is a genuine improvement, but a `tests/unit/test_server.py` covering every registered tool, not just the one that already broke twice, is still the only fix that prevents this class of bug for the *next* tool. Still not built.
-
----
-
 ### 39. `k_get_helm_release` returns a chart's `values` block fully unredacted — the pre-implementation decision to address this was never made
 
 **File:** `src/k8s_mcp/tools/get_helm_release.py:169`
@@ -144,6 +133,16 @@ each explicitly, don't assume:**
 ---
 
 ## FIXED
+
+### 41. No test in this repo exercises `server.py`'s `_dispatch()`/tool-registration path — every "unit test" calls handler functions directly, so signature mismatches between `_dispatch()` and any handler ship undetected
+
+**File:** `tests/unit/test_server.py` (new), `src/k8s_mcp/server.py`
+**Severity:** High — this is the root cause that let Issue 40 ship with 14 passing tests and a "committed" status. First flagged as a residual gap under Issue 13, explicitly marked "low priority, not re-blocking" at the time. Issue 40 is the predicted regression materializing.
+**Root cause:** `_dispatch()` (`server.py:47-73`) injects `discovery_cache` into every handler call via `**kwargs`. Nothing verified that every registered handler's signature actually accepts what `_dispatch()` sends.
+**Fix:** Added `tests/unit/test_server.py` with a parametrized smoke test (`TestDispatchPathSmoke::test_dispatch_no_type_error`) that calls `_dispatch()` directly for every tool at every access level (`readonly`/`readwrite`/`admin`) with the exact kwargs each wrapper in `server.py` passes, mocking `resolve`/`run_kubectl`/`run_kubectl_checked` at the tool-module level. 33 test cases (11 tools × 3 access levels, 7 skipped for tools not available at that level), all passing. Also fixed `_dispatch()`'s `discovery_cache` type annotation from `DiscoveryCache` to `DiscoveryCache | None` to match the handlers' actual signatures. Full suite: 331 passed, 7 skipped.
+**Verified (2026-09-25):** `python -m pytest tests/unit/ -q` → `331 passed, 7 skipped in 0.53s`. The 7 skips are correct (tools not registered at that access level: apply/patch/delete at readonly, exec/get_secret_to_file at readonly+readwrite).
+
+---
 
 ### 40. `k_auth_can_i` crashed on every real call — two independent bugs, three commits, finally resolved and independently confirmed end-to-end
 
