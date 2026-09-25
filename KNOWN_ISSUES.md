@@ -73,7 +73,7 @@ SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the 
 
 **Verified (2026-09-25), before promotion into PRD/SPEC:** Helm v3's storage format (labels, base64+gzip+json encoding) confirmed accurate to standard, publicly-documented Helm v3 architecture. The proposed direct-fetch bypass of Issue 35's redaction confirmed to mirror `get_secret_to_file.py`'s existing, already-shipped pattern exactly — not a new kind of exception.
 
-**Status:** proposed, not started.
+**Status:** implemented, unit-tested, and committed (`tests/unit/test_tools_get_helm_release.py`, 12 tests; full suite 289 passed).
 
 ---
 

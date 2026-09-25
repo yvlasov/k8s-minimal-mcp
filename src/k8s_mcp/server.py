@@ -33,6 +33,7 @@ from .tools import (
     handle_describe,
     handle_list_resources,
     handle_get_secret_to_file,
+    handle_get_helm_release,
 )
 
 logger = logging.getLogger("k8s_mcp")
@@ -116,6 +117,15 @@ def main(argv: list[str] | None = None) -> None:
                              all_namespaces=all_namespaces, label_selector=label_selector,
                              field_selector=field_selector, output=output,
                              jsonpath_template=jsonpath_template, annotation_selector=annotation_selector)
+
+    if "get_helm_release" in allowed:
+        @app.tool(name="k_get_helm_release", description="k_get_helm_release: release: Helm release name; namespace: Namespace; revision: Specific revision number (default: highest); include_manifest: Include the full rendered manifest in the response")
+        def get_helm_release(context: str, release: str, namespace: str,
+                             revision: int | None = None,
+                             include_manifest: bool = False) -> dict[str, Any]:
+            return _dispatch("get_helm_release", handle_get_helm_release, context, discovery_cache, allow_namespaces,
+                             release=release, namespace=namespace,
+                             revision=revision, include_manifest=include_manifest)
 
     if "logs" in allowed:
         @app.tool(name="k_logs", description="k_logs: pod: Pod name; namespace: Pod namespace; container: Container name; tail: Number of lines from the end; previous: Use previous container instance; since: Return logs newer than a relative duration")

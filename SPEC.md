@@ -806,7 +806,7 @@ the cluster, so validating a namespace that's never used for access would be the
 
 ### FR12. `k_get_helm_release` (PRD §15 FR12)
 
-**Status: Proposed, not started.** Helm v3's storage format (labels
+**Status: Implemented, unit-tested, and committed** (`tests/unit/test_tools_get_helm_release.py`, 12 tests; full suite 289 passed). Helm v3's storage format (labels
 `owner=helm,name=<release>,version=<revision>`, `.data.release` = `base64(gzip(json))`)
 confirmed accurate (2026-09-25) against standard, publicly-documented Helm v3 architecture.
 The proposed direct-fetch bypass of Issue 35's Secret redaction confirmed to mirror
