@@ -679,7 +679,7 @@ before implementation:
 
 ### FR10. `src_file` for `k_apply` (PRD §15 FR10)
 
-**Status: Not started.**
+**Status: Implemented and committed** (`c223fb5`; 6 new tests in `test_tools_apply.py` — JSON/YAML happy paths via real `tmp_path` files, both/neither-set `invalid_manifest`, relative-path `unsafe_path`, nonexistent-file `file_read_failed`; full suite 253 passed). PRD §6's `k_apply` row updated (`manifest` or `src_file`, exactly one).
 
 Current `handle_apply()` (`tools/apply.py`) always requires `manifest: str` and uses it in
 two places: `_parse_manifest(manifest)` (to determine `kind` for R8 validation) and
