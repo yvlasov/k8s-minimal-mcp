@@ -9,6 +9,7 @@ from .exec_ import handle_exec
 from .contexts import handle_list_contexts
 from .describe import handle_describe
 from .list_resources import handle_list_resources
+from .get_secret_to_file import handle_get_secret_to_file
 
 __all__ = [
     "handle_get",
@@ -20,4 +21,5 @@ __all__ = [
     "handle_list_contexts",
     "handle_describe",
     "handle_list_resources",
+    "handle_get_secret_to_file",
 ]

@@ -1,10 +1,10 @@
 # Known Issues
 
-## FEATURE REQUESTS (not yet built)
+## FEATURE REQUESTS
 
 Distinct from `## OPEN`/`## FIXED` below, which track code defects — this section tracks
-proposed new capability. Full spec lives in PRD.md §15 / SPEC.md §8; this is a pointer plus
-implementation plan, not a duplicate of the full writeup.
+proposed new capability and its implementation status. Full spec lives in PRD.md §15 /
+SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the full writeup.
 
 ### FR9. `k_get_secret_to_file` — write a Secret's decoded content to a file, never into model context
 
@@ -19,12 +19,12 @@ implementation plan, not a duplicate of the full writeup.
 4. `server.py` — register conditionally on admin access, same pattern as `k_exec`; tool description explicitly states values never appear in the response (a contract for the calling model, not just an implementation note).
 5. New `tests/unit/test_tools_get_secret_to_file.py` — happy path (assert actual file content, not just that a write happened); relative-path rejection; exists-without-overwrite rejection + overwrite-succeeds case; file mode is `0o600` (via `tmp_path`, not a mocked filesystem); filesystem-write-failure handling; standard `resolve()`/`validate()`/`kubectl_failure` passthrough; and one test that specifically searches the serialized response for the known test secret's plaintext value and asserts it's never present — the actual security property this tool exists for, not just "no `data` key happens to be there."
 
-**Open decisions to make explicitly before/during implementation (see PRD FR9 for full reasoning on each):**
-- Path safety beyond "must be absolute" — restrict to a configured safe directory, or trust the admin-only gate as sufficient?
-- Output file format — one JSON file (proposed default) vs. `.env`-style `KEY=value` lines.
-- Non-UTF-8 secret values — `errors="replace"` (simple, lossy for binary data) vs. a per-key flag for base64-passthrough.
+**Decisions (resolved before implementation; see PRD FR9 for full reasoning on each):**
+- Path safety: absolute path only; the admin-only gate is sufficient — no configured directory allowlist.
+- Output file format: one JSON file, `{"data": {...}, "base64_keys": [...]}`.
+- Non-UTF-8 secret values: per-key base64-passthrough (lossless) — values that are not valid base64, or not valid UTF-8 after decoding, are written as-is and listed in `base64_keys`.
 
-**Status:** not started — planning only, per PRD §15/SPEC §8.
+**Status:** implemented and unit-tested (`tests/unit/test_tools_get_secret_to_file.py`, 11 tests; full suite 240 passed). Commit pending explicit request.
 
 ---
 

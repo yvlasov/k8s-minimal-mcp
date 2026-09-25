@@ -3,7 +3,7 @@
 Levels:
   readonly   → get, logs, describe
   readwrite  → + apply, patch, delete
-  admin      → + exec
+  admin      → + exec, get_secret_to_file
 
 Tools are filtered at **registration time** in server.py — the model never
 sees tools outside its level. This is not a per-call check.
@@ -24,7 +24,7 @@ class AccessLevel(str, Enum):
 _VERB_MAP: dict[AccessLevel, FrozenSet[str]] = {
     AccessLevel.READONLY: frozenset({"get", "logs", "describe", "list_resources"}),
     AccessLevel.READWRITE: frozenset({"get", "logs", "describe", "list_resources", "apply", "patch", "delete"}),
-    AccessLevel.ADMIN: frozenset({"get", "logs", "describe", "list_resources", "apply", "patch", "delete", "exec"}),
+    AccessLevel.ADMIN: frozenset({"get", "logs", "describe", "list_resources", "apply", "patch", "delete", "exec", "get_secret_to_file"}),
 }
 
 

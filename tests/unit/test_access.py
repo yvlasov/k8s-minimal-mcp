@@ -18,7 +18,7 @@ class TestAccessLevel:
 
     def test_admin_verbs(self):
         verbs = allowed_verbs(AccessLevel.ADMIN)
-        assert verbs == frozenset({"get", "logs", "describe", "list_resources", "apply", "patch", "delete", "exec"})
+        assert verbs == frozenset({"get", "logs", "describe", "list_resources", "apply", "patch", "delete", "exec", "get_secret_to_file"})
 
     def test_readonly_excludes_mutating(self):
         readonly = allowed_verbs(AccessLevel.READONLY)
@@ -29,10 +29,11 @@ class TestAccessLevel:
     def test_readwrite_excludes_exec(self):
         readwrite = allowed_verbs(AccessLevel.READWRITE)
         assert "exec" not in readwrite
+        assert "get_secret_to_file" not in readwrite
 
     def test_admin_includes_all(self):
         admin = allowed_verbs(AccessLevel.ADMIN)
-        assert len(admin) == 8
+        assert len(admin) == 9
 
     def test_readonly_includes_describe(self):
         readonly = allowed_verbs(AccessLevel.READONLY)

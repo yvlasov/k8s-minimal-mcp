@@ -587,10 +587,13 @@ none — `envelope()` and `exec_failed()` already exist and cover both fixes).
 
 ### FR9. `k_get_secret_to_file` (PRD §15 FR9)
 
-**Status: Not started.** The three "design decisions" flagged in PRD FR9 (path safety,
-overwrite behavior, output format) need explicit answers before or during implementation —
-this spec assumes a reasonable default for each so implementation isn't blocked, but flags
-each as a decision, not a silent given.
+**Status: Implemented.** The three "design decisions" flagged in PRD FR9 were resolved
+before implementation:
+- Path safety: absolute path only; the admin-only gate is sufficient — no configured
+  directory allowlist.
+- Output format: one JSON file, `{"data": {...}, "base64_keys": [...]}`.
+- Non-UTF-8 values: per-key base64-passthrough (lossless) — values that are not valid
+  base64, or not valid UTF-8 after decoding, are written as-is and listed in `base64_keys`.
 
 - **`errors.py`:** add three new error codes/helpers, following the existing
   `invalid_output`/`invalid_selector`/`invalid_jsonpath_template` shape:
@@ -625,13 +628,12 @@ each as a decision, not a silent given.
   - Fetch: `run_kubectl_checked(context, ["get", "secret", name, "-n", namespace], output_format="json")`
     (this is a plain, explicit `-o json` fetch of one object — no need for `k_get`'s
     name/output-format machinery here, this tool only ever fetches one Secret one way).
-  - Decode: `base64.b64decode(v).decode("utf-8", errors="replace")` for each key in the
-    fetched object's `.data` (note: `errors="replace"` rather than raising, since some
-    Secret values are legitimately binary/non-UTF-8 — decide at implementation time whether
-    non-UTF-8 values should instead be written base64-encoded-as-is with a per-key flag, or
-    whether `errors="replace"` silently corrupting binary content is acceptable given this
-    tool's primary use case is credential/config strings, not arbitrary binary blobs).
-  - Write: `json.dumps({key: decoded_value, ...})` to `dst_secret_file`, then
+  - Decode: strict `base64.b64decode(v, validate=True).decode("utf-8")` for each key in the
+    fetched object's `.data`. On `binascii.Error` or `UnicodeDecodeError` (binary or
+    non-base64 values), write the original value as-is and add the key to a `base64_keys`
+    list — lossless per-key passthrough (resolved decision; supersedes the earlier
+    `errors="replace"` default, which would have silently corrupted binary content).
+  - Write: `json.dumps({"data": {key: decoded_value, ...}, "base64_keys": [...]})` to `dst_secret_file`, then
     `os.chmod(dst_secret_file, 0o600)` immediately after creation (write via a mode that
     never exposes a wider-permission window — e.g. open with `os.open(path, os.O_WRONLY |
     os.O_CREAT | os.O_TRUNC, 0o600)` rather than plain `open()` + a separate `chmod()`

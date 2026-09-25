@@ -29,6 +29,9 @@ ERROR_INVALID_OUTPUT = "invalid_output"
 ERROR_INVALID_SELECTOR = "invalid_selector"
 ERROR_DISCOVERY_FAILURE = "discovery_failure"
 ERROR_INVALID_JSONPATH_TEMPLATE = "invalid_jsonpath_template"
+ERROR_UNSAFE_PATH = "unsafe_path"
+ERROR_FILE_EXISTS = "file_exists"
+ERROR_FILE_WRITE_FAILED = "file_write_failed"
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -210,6 +213,44 @@ def invalid_jsonpath_template(
     """k_get/k_apply/k_patch: jsonpath_template contains nested braces (invalid syntax)."""
     out = _base(context, ERROR_INVALID_JSONPATH_TEMPLATE)
     out["jsonpath_template"] = template
+    if detail:
+        out["detail"] = detail
+    return out
+
+
+def unsafe_path(
+    context: str,
+    path: str,
+    *,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    """k_get_secret_to_file: dst_secret_file failed the path-safety check (e.g. not absolute)."""
+    out = _base(context, ERROR_UNSAFE_PATH)
+    out["path"] = path
+    if detail:
+        out["detail"] = detail
+    return out
+
+
+def file_exists(
+    context: str,
+    path: str,
+) -> dict[str, Any]:
+    """k_get_secret_to_file: destination file already exists and overwrite is not set."""
+    out = _base(context, ERROR_FILE_EXISTS)
+    out["path"] = path
+    return out
+
+
+def file_write_failed(
+    context: str,
+    path: str,
+    *,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    """k_get_secret_to_file: writing the decoded Secret to disk failed (permissions, missing parent dir)."""
+    out = _base(context, ERROR_FILE_WRITE_FAILED)
+    out["path"] = path
     if detail:
         out["detail"] = detail
     return out

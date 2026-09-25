@@ -32,6 +32,7 @@ from .tools import (
     handle_list_contexts,
     handle_describe,
     handle_list_resources,
+    handle_get_secret_to_file,
 )
 
 logger = logging.getLogger("k8s_mcp")
@@ -169,6 +170,15 @@ def main(argv: list[str] | None = None) -> None:
                      namespace: str | None = None, container: str | None = None) -> dict[str, Any]:
             return _dispatch("exec", handle_exec, context, discovery_cache, allow_namespaces,
                              pod=pod, command=command, namespace=namespace, container=container)
+
+    # k_get_secret_to_file (admin only, PRD §15 FR9 — named R1 exception)
+    if "get_secret_to_file" in allowed:
+        @app.tool(name="k_get_secret_to_file", description="k_get_secret_to_file: name: Secret name; namespace: Secret namespace; dst_secret_file: Absolute path on the server's filesystem to write the decoded Secret to; overwrite: Overwrite the destination file if it already exists. Secret values are written only to the file and never appear in the response — only key names and the destination path are returned")
+        def get_secret_to_file(context: str, name: str, namespace: str,
+                               dst_secret_file: str, overwrite: bool = False) -> dict[str, Any]:
+            return _dispatch("get_secret_to_file", handle_get_secret_to_file, context, discovery_cache, allow_namespaces,
+                             name=name, namespace=namespace, dst_secret_file=dst_secret_file,
+                             overwrite=overwrite)
 
     logger.info("Registered tools for access level %s", access_level.value)
     logger.info("Running FastMCP server...")
