@@ -102,6 +102,8 @@ Supporting tools:
 | `k_list_contexts` | Enumerate available kubeconfig contexts (user+cluster+namespace triples) | readonly |
 | *(internal)* resource resolver | Not model-facing; backs all tools per R2, R6, R8 | — |
 
+**Prompts** (a distinct MCP primitive from tools — no schema/tool-count cost, not counted against §12's tool-count success criteria; §15 FR11): `argocd_app_health(name, namespace)`, `cilium_troubleshoot_connectivity(namespace, pod)`, `rbac_effective_permissions(as_user, namespace)`. Registered unconditionally, not gated by access level (R7) — a prompt returns only guidance text pointing at the tool calls above, it performs no cluster access itself.
+
 `resource` accepts shortname (`po`), plural (`pods`), kind (`Pod`), or fully-qualified (`ciliumnetworkpolicies.cilium.io`).
 
 ## 7. Resource Resolution & Error Contract
@@ -405,7 +407,7 @@ verbs = ["get"]
 **Interaction with existing rules:**
 - **R1** — prompts are not tools and carry no resource-type-specific tool proliferation; they narrate existing generic-verb calls rather than adding new ones. Not a second exception alongside FR9's.
 - **R7** — the access-level gate governs tools that can act on the cluster; a prompt performs no cluster access itself, so gating it the same way would mean the model can't even see written guidance about a call it's otherwise permitted to make. Registering prompts unconditionally is consistent with R7's stated rationale ("the model never sees tools outside its level... spends no schema tokens on them") rather than an exception to it.
-- **Open question, not resolved here:** whether prompts should also take a namespace argument validated against `--allow-namespaces`, given the prompt itself performs no cluster access. Leaning no, flagged rather than assumed.
+- **Resolved (as implemented):** prompts do not validate `namespace` against `--allow-namespaces` — each function still takes `namespace` to interpolate into its guidance text, but nothing checks it against the allowlist, since the prompt never touches the cluster itself (see SPEC.md §8 FR11 for the full reasoning).
 
 ### FR12. `k_get_helm_release` — decode a Helm release's storage Secret into usable metadata
 

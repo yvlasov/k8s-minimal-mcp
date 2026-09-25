@@ -79,6 +79,8 @@ k8s-minimal-mcp/
 │       │
 │       ├── access.py              # R7: access-level -> allowed verb set; registration-time filter, not per-call check
 │       │
+│       ├── prompts.py             # FR11: MCP prompts (ArgoCD/Cilium status guidance) — registered unconditionally, not gated by access level
+│       │
 │       └── data/
 │           └── core_resources.toml # R2 core table, version-controlled static data (PRD §14), NOT inline code
 │
@@ -88,7 +90,8 @@ k8s-minimal-mcp/
 │   │   ├── test_pruning.py        # R9 field stripping, status-retention allowlist
 │   │   ├── test_bounding.py       # R10 defaults + R4 reporting shape
 │   │   ├── test_access.py         # R7 registration filtering per level
-│   │   └── test_errors.py         # §7 error contract shape for each code
+│   │   ├── test_errors.py         # §7 error contract shape for each code
+│   │   └── test_prompts.py        # FR11: exact resource=/field-path string assertions per prompt
 │   ├── integration/
 │   │   └── test_tools_against_kind.py  # optional: real kubectl against a kind/minikube cluster
 │   └── fixtures/
@@ -140,7 +143,8 @@ Pre-execution validation (R8 — namespaced/cluster-scoped check, verb-support c
 3. Enumerate kubeconfig contexts (`contexts/kubeconfig.py`, via kubectl's own default kubeconfig resolution) — fail fast if none found.
 4. Compute allowed verb set from access level (`access.py`).
 5. Register only the tools whose verb is in the allowed set (R7) — conditional `@app.tool` registration, not runtime rejection.
-6. Start FastMCP server.
+6. Register MCP prompts (FR11, `prompts.py`) unconditionally, via `@app.prompt(...)` — not gated by access level, since a prompt returns only guidance text; the tool calls it recommends still pass the normal gate when actually issued.
+7. Start FastMCP server.
 
 Namespace allowlist (§8) is enforced inside each mutating/read tool by checking the resolved `namespace` param against the allowlist before calling `kubectl/runner.py` — it's an orthogonal axis to access level, so it doesn't affect tool registration, only per-call validation (alongside R8).
 
@@ -793,9 +797,12 @@ then leave everything downstream of that untouched.
   reference, so a future rename doesn't silently drift the prompt text out of sync with
   reality (the same drift class Issue 22 flags for PRD.md, applied here to prompt content).
 
-**Decision needed before implementation:** whether prompts should also take a namespace
-argument validated against `--allow-namespaces` — leaning no (the prompt itself performs no
-cluster access), but not assumed.
+**Resolved (as implemented):** prompts do **not** validate `namespace` against
+`--allow-namespaces`. Each function still takes `namespace` as a parameter — it's needed to
+interpolate into the guidance text — but `server.py`'s registrations call the prompt
+functions directly, with no `_dispatch()`/allowlist check, unlike every gated tool. This
+matches the "leaning no" call above: a prompt returns static guidance text and never touches
+the cluster, so validating a namespace that's never used for access would be theater.
 
 ### FR12. `k_get_helm_release` (PRD §15 FR12)
 
