@@ -49,7 +49,7 @@ k8s-minimal-mcp/
 │       │   ├── contexts.py        # k_list_contexts
 │       │   ├── list_resources.py  # k_list_resources (FR3)
 │       │   ├── get_secret_to_file.py  # k_get_secret_to_file (FR9, admin-only, named R1 exception)
-│       │   ├── get_helm_release.py    # k_get_helm_release (FR12, readonly, named R1 exception — see Issue 39, values unredacted)
+│       │   ├── get_helm_release.py    # k_get_helm_release (FR12, admin-only per Issue 39, named R1 exception — values still unredacted, exposure closed via access gate not content filtering)
 │       │   └── auth_can_i.py          # k_auth_can_i (FR13, readonly — see Issue 40, two dispatch-path bugs fixed and independently live-verified)
 │       │
 │       ├── resolution/            # R2, R5, R6 — resource name -> GVK
@@ -95,10 +95,8 @@ k8s-minimal-mcp/
 │   │   ├── test_errors.py         # §7 error contract shape for each code
 │   │   ├── test_prompts.py        # FR11: exact resource=/field-path string assertions per prompt
 │   │   ├── test_tools_get_helm_release.py  # FR12: decode-chain, revision-selection, redaction-gap coverage
-│   │   └── test_tools_auth_can_i.py   # FR13: exit-code mapping, --as/--as-group ordering, --list parsing
-│   │   # test_server.py does NOT exist yet — proposed by Issue 41 (OPEN): a dispatch-path
-│   │   # smoke test calling every registered tool through _dispatch(), not the handler
-│   │   # directly. This is the gap that let Issue 40 ship with 14 passing but non-catching tests.
+│   │   ├── test_tools_auth_can_i.py   # FR13: exit-code mapping, --as/--as-group ordering, --list parsing
+│   │   └── test_server.py             # Issue 41: _dispatch() smoke tests, every registered tool x every access level, using real handlers (only resolve/run_kubectl mocked)
 │   ├── integration/
 │   │   └── test_tools_against_kind.py  # optional: real kubectl against a kind/minikube cluster
 │   └── fixtures/
@@ -841,8 +839,8 @@ new kind of exception.
   - Build response: `{"release": ..., "revision": ..., "chart": ..., "chart_version": ...,
     "app_version": ..., "status": ..., "first_deployed": ..., "last_deployed": ...,
     "values": {...}}`, adding `"manifest": ...` only when `include_manifest=True`.
-- **`access.py`** — add `"get_helm_release"` to the `READONLY` tier's `_VERB_MAP`.
-- **`server.py`** — register unconditionally under the readonly gate, same pattern as `k_get`.
+- **`access.py`** — add `"get_helm_release"` to the `READONLY` tier's `_VERB_MAP`. **Superseded (Issue 39, 2026-09-25):** moved to `ADMIN`-only — see the paragraph below the test list.
+- **`server.py`** — register unconditionally under the readonly gate, same pattern as `k_get`. **Superseded:** now the admin gate, same pattern as `k_get_secret_to_file`.
 - **Tests** — new `tests/unit/test_tools_get_helm_release.py`: happy path against a real
   gzip+base64+JSON fixture (built the same way, not hand-waved, as
   `tests/fixtures/kubectl_outputs/api_resources_wide.txt` was for Issue 28); `revision`
@@ -851,15 +849,15 @@ new kind of exception.
   corrupted → `helm_release_decode_failed` with the matching `stage` and real exception text
   in `detail`; `include_manifest=False` (default) omits `.manifest`; `True` includes it.
 
-**Shipped without resolving this — now `KNOWN_ISSUES.md` Issue 39 (open, real exposure):**
-whether the decoded `values` block should get Issue 35-style redaction (a chart's
-`values.yaml` can carry plaintext credentials a chart author put there, even though it isn't
-a Kubernetes `Secret` object by the API's own type system). `get_helm_release.py` returns
-`"values": data.get("values", {})` verbatim — no redaction call, no key-name-only reduction
-like `prune()`'s Secret handling, no test asserting any redaction behavior. This is the one
-point where the implementation deviates from its own plan: every other item here was
-resolved before or during implementation; this one was left open in the plan and then never
-revisited when the code shipped.
+**Resolved via `KNOWN_ISSUES.md` Issue 39 (2026-09-25), Option B — raise the access gate,
+not add redaction:** the decoded `values` block still returns `"values": data.get("values",
+{})` verbatim — no redaction call, no key-name-only reduction like `prune()`'s Secret
+handling — but `k_get_helm_release` moved from `readonly` to `admin`-only in `access.py`,
+closing the exposure the same way `k_get_secret_to_file` is gated rather than by filtering
+content. `tests/unit/test_access.py::test_get_helm_release_admin_only` asserts absence at
+`readonly`/`readwrite` and presence at `admin`; independently live-verified (2026-09-25) by
+building the real server at all three access levels and confirming the tool is genuinely
+absent below `admin`.
 
 ### FR13. `k_auth_can_i` (PRD §15 FR13)
 
@@ -884,12 +882,11 @@ exit code 1/"denied" would be misclassified as `kubectl_failure` if routed throu
 necessary, not overcautious. `kubectl auth can-i`'s 0/1/other exit-code convention confirmed
 accurate to standard kubectl behavior.
 
-**Tool-count constraint (checked against current `main`, post-FR12):** PRD §12 caps
-`admin`-visible tools at 12; current count is 11 (6 `readonly` + 3 `readwrite` + 2
-`admin`-only). This tool registers at `readonly` per the plan below, so it stacks into
-`admin` too — bringing the total to exactly 12/12 with no headroom left. Not a blocker, but
-re-check the actual count at implementation time (it may have moved again) before adding
-anything else.
+**Tool-count constraint (2026-09-25, final):** shipped at `readonly` as planned, bringing
+`admin` to exactly 12/12 — met, no violation. After Issue 39 later moved `k_get_helm_release`
+from `readonly` to `admin`-only, the live-verified count is 6 `readonly` / 9 `readwrite` / 12
+`admin` — `admin` unchanged (still 12/12), `readonly` gained headroom back (6/10) as a side
+effect of that unrelated change, not of this one.
 
 - **New module `tools/auth_can_i.py`:**
   - Single-check: build args in order `["auth", "can-i", verb, resource_with_name] +
