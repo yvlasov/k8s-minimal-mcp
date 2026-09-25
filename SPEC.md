@@ -762,7 +762,7 @@ then leave everything downstream of that untouched.
 
 ### FR11. Built-in MCP prompts for ArgoCD/Cilium status (PRD §15 FR11)
 
-**Status: Implemented and committed** (`tests/unit/test_prompts.py`, 12 tests; full suite 276 passed).
+**Status: PR_REVIEW — https://github.com/yvlasov/k8s-minimal-mcp/pull/1**
 
 - **New module `src/k8s_mcp/prompts.py`** — one function per prompt, each returning a single
   formatted `str` that embeds the literal tool-call shape (exact `resource=` string, exact
