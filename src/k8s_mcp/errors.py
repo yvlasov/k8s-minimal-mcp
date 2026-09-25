@@ -33,6 +33,8 @@ ERROR_UNSAFE_PATH = "unsafe_path"
 ERROR_FILE_EXISTS = "file_exists"
 ERROR_FILE_WRITE_FAILED = "file_write_failed"
 
+ERROR_FILE_READ_FAILED = "file_read_failed"
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -250,6 +252,20 @@ def file_write_failed(
 ) -> dict[str, Any]:
     """k_get_secret_to_file: writing the decoded Secret to disk failed (permissions, missing parent dir)."""
     out = _base(context, ERROR_FILE_WRITE_FAILED)
+    out["path"] = path
+    if detail:
+        out["detail"] = detail
+    return out
+
+
+def file_read_failed(
+    context: str,
+    path: str,
+    *,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    """k_apply: reading the manifest from src_file failed (missing file, permissions, undecodable content)."""
+    out = _base(context, ERROR_FILE_READ_FAILED)
     out["path"] = path
     if detail:
         out["detail"] = detail

@@ -127,12 +127,12 @@ def main(argv: list[str] | None = None) -> None:
                              tail=tail, previous=previous, since=since)
 
     if "apply" in allowed:
-        @app.tool(name="k_apply", description="k_apply: manifest: JSON/YAML manifest to apply; namespace: Namespace for namespaced resources; dry_run: Dry-run mode; output: Output format (json/yaml/jsonpath); jsonpath_template: JsonPath template for output=jsonpath (for multiple fields use {.items[*]['field1','field2']} or {range}...{end} — nested {...} groups are not supported)")
-        def apply(context: str, manifest: str, namespace: str | None = None,
+        @app.tool(name="k_apply", description="k_apply: manifest: JSON/YAML manifest to apply (exactly one of manifest or src_file is required); src_file: absolute path to a file containing the manifest; namespace: Namespace for namespaced resources; dry_run: Dry-run mode; output: Output format (json/yaml/jsonpath); jsonpath_template: JsonPath template for output=jsonpath (for multiple fields use {.items[*]['field1','field2']} or {range}...{end} — nested {...} groups are not supported)")
+        def apply(context: str, manifest: str | None = None, src_file: str | None = None, namespace: str | None = None,
                   dry_run: str = "none", output: str | None = None,
                   jsonpath_template: str | None = None) -> dict[str, Any]:
             return _dispatch("apply", handle_apply, context, discovery_cache, allow_namespaces,
-                             manifest=manifest, namespace=namespace, dry_run=dry_run,
+                             manifest=manifest, src_file=src_file, namespace=namespace, dry_run=dry_run,
                              output=output, jsonpath_template=jsonpath_template)
 
     if "patch" in allowed:

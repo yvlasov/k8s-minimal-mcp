@@ -754,8 +754,6 @@ then leave everything downstream of that untouched.
   - existing `manifest`-only tests continue to pass unmodified — this change must be
     additive, not disruptive to the current call shape.
 
-**Related, separately-tracked finding (see PRD §15 FR10's own note and `KNOWN_ISSUES.md`):**
-`output/pruning.py`'s `prune()` has no `Secret`-specific handling — `k_get`/`k_apply`/
-`k_patch`/`k_delete` all return a Secret's full `.data` map verbatim today. Not fixed as
-part of this FR; tracked as its own item since it touches every tool that can return a
-Secret, not just `k_apply`.
+**Related, now-resolved finding (see PRD §15 FR10's own note and `KNOWN_ISSUES.md` Issue 35):**
+`output/pruning.py`'s `prune()` had no `Secret`-specific handling — `k_get`/`k_apply`/
+`k_patch`/`k_delete` all returned a Secret's full `.data` map verbatim. Resolved by Issue 35: `prune()` now redacts `.data`/`.stringData` to `{"redacted_keys": [...]}` (key names only) when `kind == "Secret"`.

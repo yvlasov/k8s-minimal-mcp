@@ -43,25 +43,27 @@ SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the 
 4. PRD §6 — update `k_apply`'s row once shipped (required column: "`manifest` or `src_file`, exactly one"). This exact step (§6 drifting behind a shipped param) has already happened multiple times this project's history — see Issue 22 — make a point of not letting it happen an (n+1)th time.
 5. Tests — `src_file` via `tmp_path` succeeds identically to the equivalent inline `manifest`; both-set and neither-set → `invalid_manifest`; relative `src_file` → `unsafe_path`; nonexistent `src_file` → `file_read_failed`; existing `manifest`-only tests unmodified.
 
-**Related finding, tracked separately (see Issue 35 below):** `src_file`'s whole motivation (route Secret content around the model) is undercut by an existing, unrelated gap — `k_apply`'s (and every other tool's) response already echoes a Secret's `.data` map verbatim, `src_file` or not. Not fixed as part of this FR.
+**Related finding, now resolved (see Issue 35 below):** `src_file`'s whole motivation (route Secret content around the model) is undercut by an existing, unrelated gap — `k_apply`'s (and every other tool's) response already echoes a Secret's `.data` map verbatim, `src_file` or not. Resolved by Issue 35's hard-block Secret redaction in `prune()`.
 
-**Status:** not started — planning only.
+**Status:** implemented, unit-tested (6 new tests in `test_tools_apply.py` covering JSON + YAML happy paths, both/neither invalid_manifest, relative unsafe_path, nonexistent file_read_failed; existing manifest-only tests unmodified).
 
 ---
 
 ## OPEN (not yet fixed)
 
-### 35. `prune()` has no `Secret`-specific handling — `k_get`/`k_apply`/`k_patch`/`k_delete` all return a Secret's full `.data` map verbatim
-
-**File:** `src/k8s_mcp/output/pruning.py`
-**Severity:** High — a real, currently-shipping content-exposure gap, not a hypothetical. Confirmed by reading `pruning.py` in full: `prune()`'s only special-casing is the `_STATUS_KINDS`/`_CONDITION_KINDS` status-retention allowlist (R9) — there is no `kind == "Secret"` branch anywhere, and no field in `_UNCONDITIONAL_STRIP_PATHS` targets `.data`/`.stringData`. Any `k_get resource=secrets name=... output=json`, or any `k_apply`/`k_patch`/`k_delete` that touches a Secret, returns that Secret's base64-encoded values in the response exactly as kubectl returned them — fully exposed to the model, logged, and retained in conversation history.
-**Discovered while designing:** FR10 (`src_file`), whose stated purpose is keeping Secret content out of model context on the *write* path — a purpose already undermined by this gap on the *read-back* path, since applying/patching a Secret returns the resulting object's data unredacted regardless of how the manifest was supplied.
-**Proposed fix (not yet built — this is an OPEN issue, no fix applied):** extend `prune()` with `Secret`-specific handling, applied uniformly (matching R9's own "single response-transform applied uniformly at the output boundary" principle, PRD §14) rather than as one-off logic in each tool: when `kind == "Secret"`, strip `.data`/`.stringData` entirely (replace with a `{"redacted_keys": [...]}` marker preserving just the key names, mirroring FR9's `keys`-only response shape) unless the caller explicitly opts in to seeing values (an explicit `output=json` request is *not* sufficient opt-in on its own, since that's already the default way to inspect any resource — this needs its own explicit signal, e.g. a `reveal_secrets=true`-style param on `k_get` specifically, or simply never allow it and point callers at `k_get_secret_to_file` instead).
-**Open question, resolve before implementing:** should this be a hard block (Secrets are simply never returned with values, full stop — push everyone toward `k_get_secret_to_file`) or an opt-in reveal? A hard block is simpler and matches this project's general safety-by-default posture (R7, R8); an opt-in adds a parameter and a decision about what counts as sufficient intent to see the value.
+_None — all previously open issues are fixed._
 
 ---
 
 ## FIXED
+
+### 35. `prune()` had no `Secret`-specific handling — `k_get`/`k_apply`/`k_patch`/`k_delete` all returned a Secret's full `.data` map verbatim
+
+**File:** `src/k8s_mcp/output/pruning.py`
+**Fix:** Added `Secret`-specific handling to `prune()`: when `kind == "Secret"`, `.data` and `.stringData` are replaced with `{"redacted_keys": sorted(keys)}` — key names only, never values. This applies uniformly across all four standard JSON paths (`k_get`, `k_apply`, `k_patch`, `k_delete`) since they all pass `kind=resource_meta.kind` into `prune()`. No opt-out parameter; this is a hard block matching R7/R8 safety-by-default posture. Callers needing values use `k_get_secret_to_file`.
+**Test:** Added 7 tests in `tests/unit/test_pruning.py` (`TestPruneSecretRedaction`) covering: `.data` redacted to `{"redacted_keys": [...]}`, `.stringData` redacted, both redacted simultaneously, empty `.data` unchanged, no `data` field unchanged, `kind=None` no redaction, non-Secret `.data` preserved.
+
+---
 
 ### 1. `bound_get_names({})` returns `[{}]` instead of `[]`
 

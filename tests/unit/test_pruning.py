@@ -104,3 +104,79 @@ class TestPrune:
     def test_prune_preserves_api_version(self, full_pod):
         result = prune(full_pod, kind="Pod")
         assert result["apiVersion"] == "v1"
+
+
+@pytest.fixture
+def full_secret():
+    return {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {
+            "name": "test-secret",
+            "namespace": "default",
+            "uid": "secret-uid",
+        },
+        "data": {
+            "username": "YWRtaW4=",
+            "password": "c2VjcmV0MTIz",
+            "token": "dG9rZW4tdmFsdWU=",
+        },
+        "stringData": {
+            "config.yaml": "key: value",
+        },
+        "status": {"phase": "Active"},
+    }
+
+
+class TestPruneSecretRedaction:
+    def test_secret_data_redacted(self, full_secret):
+        result = prune(full_secret, kind="Secret")
+        assert "data" in result
+        assert result["data"] == {"redacted_keys": ["password", "token", "username"]}
+        assert "YWRtaW4=" not in str(result)
+
+    def test_secret_stringdata_redacted(self, full_secret):
+        result = prune(full_secret, kind="Secret")
+        assert "stringData" in result
+        assert result["stringData"] == {"redacted_keys": ["config.yaml"]}
+        assert "key: value" not in str(result)
+
+    def test_secret_values_absent_from_result(self, full_secret):
+        result = prune(full_secret, kind="Secret")
+        result_str = str(result)
+        assert "YWRtaW4=" not in result_str
+        assert "c2VjcmV0MTIz" not in result_str
+        assert "dG9rZW4tdmFsdWU=" not in result_str
+        assert "key: value" not in result_str
+
+    def test_secret_empty_data_unchanged(self):
+        secret = {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {"name": "empty-secret"},
+            "data": {},
+        }
+        result = prune(secret, kind="Secret")
+        assert result["data"] == {}
+
+    def test_secret_no_data_field(self):
+        secret = {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {"name": "no-data-secret"},
+        }
+        result = prune(secret, kind="Secret")
+        assert "data" not in result
+        assert "stringData" not in result
+
+    def test_secret_kind_none_no_redaction(self, full_secret):
+        result = prune(full_secret, kind=None)
+        assert result["data"] == {
+            "username": "YWRtaW4=",
+            "password": "c2VjcmV0MTIz",
+            "token": "dG9rZW4tdmFsdWU=",
+        }
+
+    def test_non_secret_data_preserved(self, full_configmap):
+        result = prune(full_configmap, kind="ConfigMap")
+        assert result["data"] == {"key": "value"}

@@ -65,6 +65,13 @@ def prune(data: Any, *, kind: str | None = None, keep_status: bool = False) -> A
         if isinstance(annotations, dict):
             annotations.pop(_LAST_APPLIED_ANNOTATION, None)
 
+    # Issue 35 hard block: redact Secret .data and .stringData (key names only, never values)
+    if kind == "Secret":
+        for field in ("data", "stringData"):
+            value = result.get(field)
+            if isinstance(value, dict) and value:
+                result[field] = {"redacted_keys": sorted(value.keys())}
+
     # Status retention
     if "status" in result:
         if not keep_status and kind:
