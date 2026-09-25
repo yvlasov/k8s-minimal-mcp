@@ -50,7 +50,7 @@ k8s-minimal-mcp/
 │       │   ├── list_resources.py  # k_list_resources (FR3)
 │       │   ├── get_secret_to_file.py  # k_get_secret_to_file (FR9, admin-only, named R1 exception)
 │       │   ├── get_helm_release.py    # k_get_helm_release (FR12, readonly, named R1 exception — see Issue 39, values unredacted)
-│       │   └── auth_can_i.py          # k_auth_can_i (FR13, readonly — see Issue 40, broken via _dispatch until fixed)
+│       │   └── auth_can_i.py          # k_auth_can_i (FR13, readonly — see Issue 40, still broken via _dispatch: a verb-parameter name collision, not yet fixed)
 │       │
 │       ├── resolution/            # R2, R5, R6 — resource name -> GVK
 │       │   ├── __init__.py
@@ -863,12 +863,17 @@ revisited when the code shipped.
 
 ### FR13. `k_auth_can_i` (PRD §15 FR13)
 
-**Status: code committed, unit-tested — not yet usable through the real server.** The
-`run_kubectl`-not-`_checked` exit-code logic this section's plan flagged as the hard part was
-implemented correctly and is well-tested (`tests/unit/test_tools_auth_can_i.py`, 14 tests;
-full suite 303 passed). But `handle_auth_can_i()` doesn't accept `discovery_cache`, which
-`server.py`'s `_dispatch()` always passes — every real call crashes. See `KNOWN_ISSUES.md`
-Issue 40 for the one-line fix and Issue 41 for why 14 passing tests didn't catch it. Confirmed (2026-09-25) directly against
+**Status: code committed, unit-tested — still not usable through the real server (2026-09-25).**
+The `run_kubectl`-not-`_checked` exit-code logic this section's plan flagged as the hard part
+was implemented correctly and is well-tested (`tests/unit/test_tools_auth_can_i.py`, 14
+tests; full suite 304 passed). `handle_auth_can_i()` originally didn't accept `discovery_cache`,
+which `server.py`'s `_dispatch()` always passes — that specific cause was fixed, but the fix's
+own regression test called the handler directly rather than through `_dispatch()` (the exact
+evasion Issue 41 names), so it missed a second, independent bug: `_dispatch()`'s own first
+parameter is named `verb`, colliding with `k_auth_can_i`'s own `verb` argument — every real
+call still crashes, now on `TypeError: _dispatch() got multiple values for argument 'verb'`.
+See `KNOWN_ISSUES.md` Issue 40 for the full history and Issue 41 for the structural fix that
+would catch this bug class permanently. Confirmed (2026-09-25) directly against
 `kubectl/runner.py:108-109` — `run_kubectl_checked` treats any non-zero exit code as an error
 via `map_kubectl_error(...)`, no special-casing — so this proposal's claim (`auth can-i`'s
 exit code 1/"denied" would be misclassified as `kubectl_failure` if routed through
