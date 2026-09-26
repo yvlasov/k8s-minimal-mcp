@@ -1,526 +1,130 @@
 # Known Issues
 
+Full history (root cause, fix, tests, verification) for every entry below lives in
+`CHANGELOG.md`. This file tracks current status only: what's still open, what shipped, and the
+one process rule (Definition of Done) that governs when a Status line may say "implemented."
+
 ## FEATURE REQUESTS
 
 Distinct from `## OPEN`/`## FIXED` below, which track code defects — this section tracks
-proposed new capability and its implementation status. Full spec lives in PRD.md §15 /
-SPEC.md §8; this is a pointer plus implementation plan, not a duplicate of the full writeup.
+proposed new capability. Full design/implementation plan lives in `PRD.md` §15 / `SPEC.md` §8;
+shipped-feature history lives in `CHANGELOG.md`.
 
-**Definition of Done, added 2026-09-25 after the 8th recurrence of doc drift (Issue 22) and
-a shipped-but-broken tool (Issue 40) both traced to the same root cause — a "Status:
-implemented, unit-tested, and committed" label being written before these were actually
-true. A Status line may not claim "implemented" until all of the following hold — check
-each explicitly, don't assume:**
-1. **Tests exercise the real dispatch path, not just the handler function directly.** Every
-   prior FR's tests called `handle_<tool>(...)` in isolation — none went through
-   `server.py`'s `_dispatch()`/the registered `@app.tool` wrapper. This is precisely what let
-   Issue 40 (a `discovery_cache` kwarg mismatch that crashes the tool on every real call)
-   ship with 14 passing tests. See Issue 41 for the structural fix (a dispatch-path smoke
-   test covering every registered tool).
+**Definition of Done** (added 2026-09-25 after the 8th recurrence of doc drift — Issue 22 — and
+a shipped-but-broken tool — Issue 40 — both traced to the same root cause: a "Status:
+implemented" label written before it was actually true). A Status line may not claim
+"implemented" until all of the following hold:
+1. **Tests exercise the real dispatch path** (`server.py`'s `_dispatch()`/the registered
+   `@app.tool` wrapper), not just the handler function directly — see Issue 41/CHANGELOG.
 2. **SPEC.md §2's Module Layout tree lists the new module(s).**
 3. **PRD.md §6's Tool Specification table has a row for the new tool** (prompts are exempt —
-   see FR11's precedent — but anything registered via `@app.tool` is not).
-4. **PRD.md §12's "Status against current `main`" paragraph is re-dated and re-counted** if
-   the tool count changed — not left describing a prior FR as the most recent one.
+   see FR11 — but anything registered via `@app.tool` is not).
+4. **PRD.md §12's "Status against current `main`" paragraph is re-dated and re-counted** if the
+   tool count changed.
 5. **README.md's Available Tools table has a row for the new tool.**
-6. **The Status line's own test count and commit hash are verified by actually running the
-   suite and checking `git log`**, not estimated or carried over from a draft.
+6. **The Status line's test count and commit hash are verified by actually running the suite
+   and checking `git log`**, not estimated or carried over from a draft.
 
-### FR9. `k_get_secret_to_file` — write a Secret's decoded content to a file, never into model context
-
-**Spec:** PRD.md §15 FR9, SPEC.md §8 FR9.
-**Why:** every existing read tool (`k_get`, `k_describe`, `k_logs`) returns content directly in the response, which becomes part of the model's context. For `Secret` resources that means credentials/tokens/certificates would flow through the same path as a pod name. This tool decodes a Secret and writes it straight to a file on disk, returning only key names and the file path to the model — never values.
-**Scope:** new tool, `admin`-only access level, required params `context`/`name`/`namespace`/`dst_secret_file` (mandatory destination path), optional `overwrite` (default `False`). Deliberately a *named exception* to R1 ("tools map to verbs, not resource types") — the one resource type (`Secret`) where R1's generic-verb shape is actively wrong, not a precedent for more resource-specific tools.
-
-**Implementation plan:**
-1. `errors.py` — add `unsafe_path()`, `file_exists()`, `file_write_failed()` error helpers, matching the existing `invalid_output`/`invalid_selector`/`invalid_jsonpath_template` shape.
-2. New `tools/get_secret_to_file.py` — fail-fast checks in order: `dst_secret_file` must be an absolute path (`unsafe_path` otherwise); if it already exists and `overwrite` isn't `True`, `file_exists`; standard R8 namespace validation (Secrets are always namespaced). Then: `kubectl get secret <name> -n <namespace> -o json`, base64-decode every key in `.data`, write as one JSON file using `os.open(..., os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)` (never a plain `open()` + later `chmod()` — that leaves a window where the file is briefly wider-permission than intended). Response: `{"written_to": ..., "keys": [...]}` — key names only, never values, anywhere in the returned dict.
-3. `access.py` — add `"get_secret_to_file"` to `_VERB_MAP`'s `ADMIN` tier only.
-4. `server.py` — register conditionally on admin access, same pattern as `k_exec`; tool description explicitly states values never appear in the response (a contract for the calling model, not just an implementation note).
-5. New `tests/unit/test_tools_get_secret_to_file.py` — happy path (assert actual file content, not just that a write happened); relative-path rejection; exists-without-overwrite rejection + overwrite-succeeds case; file mode is `0o600` (via `tmp_path`, not a mocked filesystem); filesystem-write-failure handling; standard `resolve()`/`validate()`/`kubectl_failure` passthrough; and one test that specifically searches the serialized response for the known test secret's plaintext value and asserts it's never present — the actual security property this tool exists for, not just "no `data` key happens to be there."
-
-**Decisions (resolved before implementation; see PRD FR9 for full reasoning on each):**
-- Path safety: absolute path only; the admin-only gate is sufficient — no configured directory allowlist.
-- Output file format: one JSON file, `{"data": {...}, "base64_keys": [...]}`.
-- Non-UTF-8 secret values: per-key base64-passthrough (lossless) — values that are not valid base64, or not valid UTF-8 after decoding, are written as-is and listed in `base64_keys`.
-
-**Status:** implemented, unit-tested, and committed (`a30abbb` docs, `d6c609c` implementation; `tests/unit/test_tools_get_secret_to_file.py`, 11 tests; full suite 240 passed).
-
-**Verified (2026-09-25):** re-read the actual implementation against PRD/SPEC fresh, not just the status note above. Confirmed: path safety (absolute-only, no directory allowlist), output format (`{"data": {...}, "base64_keys": [...]}`), non-UTF-8 handling traced end-to-end (original base64 string preserved verbatim on decode failure — lossless), file permissions (`os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)` with no wider-mode window, plus an explicit re-`chmod(0o600)` on the overwrite path), overwrite refusal by default. Access-level gating confirmed in both `access.py`'s `_VERB_MAP` (admin tier only) and `server.py`'s registration condition. The core security-property test (`test_secret_values_never_appear_in_response`) confirmed to serialize the *full* response and search for both the plaintext and base64-encoded value — not just check for a missing top-level `data` key. One gap found and fixed alongside this update: PRD §6's Tool Specification table had not been updated for the new tool — same drift class as Issue 22, this time for a whole new tool rather than a param.
-
----
-
-### FR10. `src_file` — apply a manifest from a local file, never through model context
-
-**Spec:** PRD.md §15 FR10, SPEC.md §8 FR10.
-**Why:** FR9 lets a caller read a Secret to a file without exposing its content to the model. There's no way back in — `k_apply`'s only input (`manifest: str`) is always inline, so the natural round trip (read a Secret to a file, edit it out-of-band, apply the edited file back) still forces the content through the model at the apply step even though FR9 kept it out at the read step. `src_file` adds a second, file-based way to supply `k_apply`'s manifest.
-**Scope:** add `src_file: str | None = None` to `k_apply` only (not `k_patch` — its `patch` param is a small patch document, not a full manifest; out of scope unless requested separately). Exactly one of `manifest`/`src_file` required. Absolute-path-only rule, same as FR9's `dst_secret_file`, reusing the same `unsafe_path` error helper. New `file_read_failed` error, mirroring FR9's `file_write_failed`.
-
-**Implementation plan:**
-1. `errors.py` — add `file_read_failed(context, path, *, detail=None)`, reuse existing `unsafe_path()`/`invalid_manifest()`.
-2. `tools/apply.py` — resolve a single `manifest_content` string once at the top of `handle_apply()` (from `manifest` directly, or by reading `src_file` after the absolute-path check), then use `manifest_content` everywhere the function currently uses `manifest` (`_parse_manifest()` and both `stdin=` kwargs) — a rename plus one new fail-fast block, no other logic change.
-3. `server.py` — `manifest` becomes optional, add `src_file` to the `apply()` wrapper and thread it through `_dispatch(...)`; update the tool description to state the two params are mutually exclusive alternatives.
-4. PRD §6 — update `k_apply`'s row once shipped (required column: "`manifest` or `src_file`, exactly one"). This exact step (§6 drifting behind a shipped param) has already happened multiple times this project's history — see Issue 22 — make a point of not letting it happen an (n+1)th time.
-5. Tests — `src_file` via `tmp_path` succeeds identically to the equivalent inline `manifest`; both-set and neither-set → `invalid_manifest`; relative `src_file` → `unsafe_path`; nonexistent `src_file` → `file_read_failed`; existing `manifest`-only tests unmodified.
-
-**Related finding, now resolved (see Issue 35 below):** `src_file`'s whole motivation (route Secret content around the model) is undercut by an existing, unrelated gap — `k_apply`'s (and every other tool's) response already echoes a Secret's `.data` map verbatim, `src_file` or not. Resolved by Issue 35's hard-block Secret redaction in `prune()`.
-
-**Status:** implemented, unit-tested, and committed (`c223fb5`; 6 new tests in `test_tools_apply.py` covering JSON + YAML happy paths, both/neither invalid_manifest, relative unsafe_path, nonexistent file_read_failed; existing manifest-only tests unmodified). PRD §6's `k_apply` row updated; SPEC.md §8's stale "Not started" status line corrected (it had been left behind after implementation — same drift class as Issue 22, this time inside SPEC.md rather than PRD.md).
-
----
-
-### FR11. Built-in MCP prompts for resources whose computed status is already a plain API object (ArgoCD `Application`, Cilium CRDs)
-
-**Spec:** PRD.md §15 FR11, SPEC.md §8 FR11.
-**Why:** live testing confirmed `k_get` already reaches ArgoCD's and Cilium's CRDs generically via the Tier-2 discovery cache — reach was never the gap. The model just has no way to know where the useful status fields live (e.g. ArgoCD's sync/health status) or which resource answers a given troubleshooting question. MCP prompts (a distinct primitive from tools) close that gap without adding resource-specific tools.
-**Scope:** three initial prompts (`argocd-app-health`, `cilium-troubleshoot-connectivity`, `rbac-effective-permissions`), registered unconditionally — no access-level gate, since a prompt performs no cluster access itself.
-
-**Verified (2026-09-25), before promotion into PRD/SPEC:** `fastmcp==4.0.4`'s `FastMCP.prompt(...)` signature confirmed real via `inspect.signature()` against this project's own environment, not fabricated. R7's access-gating rationale confirmed consistent with unconditional prompt registration (gating governs tools that act on the cluster; a prompt doesn't).
-
-**Status:** implemented, unit-tested, and committed (`tests/unit/test_prompts.py`, 12 tests; full suite 276 passed).
-
-**Verified against plan (2026-09-25):** re-checked the shipped implementation against SPEC §8 FR11's plan point-by-point — all three prompts' exact function names, literal (not paraphrased) tool-call text, and explicit "not reachable" callouts confirmed to match; unconditional registration outside every access-gating block in `server.py` confirmed correct; all 12 tests confirmed to assert real substrings (exact `resource=` values, exact field paths), not just "runs without error." Two documentation gaps found and fixed alongside this update: the "decision needed" blurb on namespace validation in both PRD.md and SPEC.md was left unresolved after the decision was actually made in code (now closed out in both), and SPEC.md §2's Module Layout / §4's Startup Sequence were never updated for the new `prompts.py` module (now added) — see Issue 22's extended note below, this is the fifth recurrence of that drift class.
-
-**Verified (2026-09-25):** confirmed `fastmcp`'s `FastMCP.prompt(...)` signature real via `inspect.signature()` against this project's own environment. R7's access-gating rationale confirmed consistent with unconditional prompt registration. Committed as part of this session.
-
----
-
-### FR12. `k_get_helm_release` — decode a Helm release's storage Secret into usable metadata
-
-**Spec:** PRD.md §15 FR12, SPEC.md §8 FR12.
-**Why:** Helm v3 release metadata is technically kubectl-reachable (as a labeled Secret) but not usable as-is, and is now additionally hard-redacted by Issue 35's `prune()` change.
-**Scope:** new read-only tool decoding the Secret's `base64(gzip(json))` `.data.release` value into a bounded summary, fetched directly (bypassing `prune()`'s Secret redaction the same way FR9's `k_get_secret_to_file` already does).
-
-**Verified (2026-09-25), before promotion into PRD/SPEC:** Helm v3's storage format (labels, base64+gzip+json encoding) confirmed accurate to standard, publicly-documented Helm v3 architecture. The proposed direct-fetch bypass of Issue 35's redaction confirmed to mirror `get_secret_to_file.py`'s existing, already-shipped pattern exactly — not a new kind of exception.
-
-**Status:** implemented, unit-tested, and committed (`98a4c14`; `tests/unit/test_tools_get_helm_release.py`, 13 tests — corrected from an earlier "12" miscount; full suite 289 passed).
-
-**Verified against plan (2026-09-25):** implementation matches the plan on every structural point (errors, `prune()`-bypass, label-based lookup, decode-chain discipline with real exception text per stage, response shape, access gating, registration). **Deviates from the plan on the one point it explicitly flagged as needing a decision**: the plan's "whether `values` needs Issue-35-style redaction" question was shipped unresolved — `values` is returned fully unredacted, with no note anywhere in the status reporting that this open item had gone unaddressed. Logged as new Issue 39 (OPEN, high severity) below, not silently absorbed into the "implemented" status.
-
----
-
-### FR13. `k_auth_can_i` — thin wrapper over `kubectl auth can-i` for RBAC effective-permission checks
-
-**Spec:** PRD.md §15 FR13, SPEC.md §8 FR13.
-**Why:** effective-permission computation is already done authoritatively by the API server (`SubjectAccessReview`); wrapping `kubectl auth can-i` avoids reimplementing RBAC/aggregation resolution client-side.
-**Scope:** new read-only tool with single-check and `--list` modes; must call `run_kubectl` directly rather than `run_kubectl_checked`, since this is the one kubectl subcommand where exit code 1 means "denied," not "failed."
-
-**Verified (2026-09-25), before promotion into PRD/SPEC:** confirmed against `kubectl/runner.py:108-109` — `run_kubectl_checked` treats any non-zero exit as an error with no special-casing, so the proposal's claimed workaround is correct and necessary, not overcautious. `kubectl auth can-i`'s 0/1 exit-code convention confirmed accurate.
-
-**Tool-count flag (2026-09-25):** current `admin`-visible tool count is 11/12 (PRD §12's ceiling). This tool registers at `readonly` and would stack into `admin`, bringing the total to exactly 12/12 — met, but zero headroom left after. Re-check the actual count at implementation time before shipping this alongside anything else.
-
-**Status:** code committed, unit-tested (`tests/unit/test_tools_auth_can_i.py`, 14 tests; full suite 303 passed) — **but not actually usable through the real MCP server.** The core logic (the `run_kubectl`-not-`_checked` correctness trap this FR's own plan flagged) was implemented correctly and is well-tested. But `handle_auth_can_i()`'s signature has no `discovery_cache` parameter, while `server.py`'s `_dispatch()` unconditionally passes one to every handler — every real call crashes with `TypeError: handle_auth_can_i() got an unexpected keyword argument 'discovery_cache'`. None of the 14 tests call through `_dispatch()`, so this went undetected. Tracked as Issue 40 (OPEN, critical) below, not silently folded into "implemented." Tool-count recount confirms `admin` is now exactly 12/12 as flagged above.
-
-**Doc-drift check (2026-09-25) — 8th occurrence of the Issue-22 pattern, across four locations:** SPEC.md §2's Module Layout tree and PRD.md §6's Tool Specification table were both missing `k_auth_can_i` entirely (now added); PRD.md §12's "Status against current `main`" paragraph still described FR12 as the most recent shipped feature (now re-dated); README.md's Available Tools table was missing both this tool and the `k_get_helm_release` row from FR12 (fixed 2026-09-25 — both rows added; the follow-up flagged here is now resolved).
+| FR | Feature | Status | Spec |
+|---|---|---|---|
+| FR1 | `output=jsonpath` for `k_get`/`k_apply`/`k_patch` | Done | PRD §15 FR1, SPEC §8 FR1 |
+| FR2 | `annotation_selector` for `k_get` | Done | PRD §15 FR2, SPEC §8 FR2 |
+| FR3 | `k_list_resources` tool | Done | PRD §15 FR3, SPEC §8 FR3 |
+| FR4 | Test coverage for `k_delete`/`k_describe`/`k_logs`/`k_exec`/`k_list_contexts` | Done | PRD §15 FR4, SPEC §8 FR4 |
+| FR5 | Fix `k_get`'s `output=wide` no-op | Done | PRD §15 FR5, SPEC §8 FR5 |
+| FR6 | Fix `k_apply`/`k_patch`'s non-functional `output=json`/`yaml` | Done | PRD §15 FR6, SPEC §8 FR6 |
+| FR7 | Add `events` to the R2 core table | Done | PRD §15 FR7, SPEC §8 FR7 |
+| FR8 | Fail-fast nested-brace `jsonpath_template` validation | Done | PRD §15 FR8, SPEC §8 FR8 |
+| FR9 | `k_get_secret_to_file` | Done | PRD §15 FR9, SPEC §8 FR9 |
+| FR10 | `src_file` for `k_apply` | Done | PRD §15 FR10, SPEC §8 FR10 |
+| FR11 | Built-in MCP prompts (ArgoCD/Cilium status) | Done — see Issue 43 (open correction) | PRD §15 FR11, SPEC §8 FR11 |
+| FR12 | `k_get_helm_release` | Done — see Issue 39 (resolved) | PRD §15 FR12, SPEC §8 FR12 |
+| FR13 | `k_auth_can_i` | Done — see Issue 40 (resolved) | PRD §15 FR13, SPEC §8 FR13 |
 
 ---
 
 ## OPEN (not yet fixed)
 
-(No open issues.)
+### 42. `map_kubectl_error()` conflates "resource type unresolvable" with "named object legitimately doesn't exist" — both surface as `unknown_resource`
+
+**File:** `src/k8s_mcp/kubectl/errors.py:36-41` (`map_kubectl_error()`), `tests/unit/test_kubectl_errors.py:20-40` (asserts the conflation as correct)
+**Severity:** Medium — doesn't block reads (`raw_stderr` still carries kubectl's real message), but the `error` code itself is actively misleading. Per this project's own `errors.py` docstring, `unknown_resource` means "No GVK matched the requested resource type name" — a resolver-level, pre-kubectl failure. What's actually happening in the cases below is the opposite: the type resolved correctly, kubectl ran, and the API server returned its standard `NotFound` for a specific object that isn't there. The calling model has no way to tell "your resource string is wrong" from "that object just doesn't exist" apart, even though they call for completely different next actions.
+
+**Reproduced live, three times across three different tools (2026-09-25):**
+1. `k_get(context="sinsia-pl", resource="ciliumendpoints", name="kubelet", namespace="kube-system", output="yaml")` → `{"error":"unknown_resource","raw_stderr":"Error from server (NotFound): ciliumendpoints.cilium.io \"kubelet\" not found\n"}`. Note `ciliumendpoints.cilium.io` — the fully-qualified type — appears correctly in kubectl's own error text; only the named object is missing (`kubelet` is a host-level process, not a Pod, so no matching CiliumEndpoint was ever going to exist).
+2. `k_describe(context="sinsia-pl", resource="pods", name="kubelet", namespace="kube-system")` → `{"error":"unknown_resource","raw_stderr":"Error from server (NotFound): pods \"kubelet\" not found\n"}`. Same shape: `pods` resolved fine, `kubelet` legitimately isn't a Pod object.
+3. Reported the same day via a separate investigation (fork), not independently re-run here but identical in shape: `k_exec` against two different pods both confirmed `Running` by `k_get` moments earlier in the same session nonetheless failed with `{"error":"unknown_resource","raw_stderr":"Error from server (NotFound): pods \"...\" not found\n"}` — third call site, same symptom.
+
+**Root cause:** `map_kubectl_error()` pattern-matches the substring `"not found"`/`"notfound"` in kubectl's stderr and unconditionally returns `unknown_resource`, with no distinction between kubectl rejecting the resource *type* (which in practice never reaches this function — `resolve()` already rejects an unresolvable type before kubectl ever runs, per `resolver.py`) and kubectl successfully resolving the type but returning `NotFound` for the object itself, which is kubectl's normal response to `get`/`describe`/`exec` against something that isn't there. Confirmed this isn't an untested blind spot: `test_kubectl_errors.py:20-40` explicitly feeds this function `'pods "x" not found'` and `'Error from server (NotFound): pods "x" not found'` and asserts `unknown_resource` as the *correct* expected result — the conflation is currently by design, not oversight, the same way Issue 26 found a test asserting a different bug as intended behavior.
+
+**Proposed next step:** either (a) add a distinct error code (e.g. `object_not_found`) reserved for a resolved-type-but-missing-object NotFound, or (b) route this case through the existing `kubectl_failure` path instead, which already carries `command`/`stderr`/`exit_code` without claiming anything about resolver correctness. Either direction needs `map_kubectl_error()` to distinguish the two NotFound shapes — likely by checking whether the stderr's resource-type token matches what was actually requested, since kubectl's own message already contains the fully-qualified type in the case that shouldn't be `unknown_resource`. Needs new tests asserting the two cases produce different `error` values; the two existing tests asserting today's conflation would need to be corrected, not just supplemented, per the Issue 26 precedent.
+
+---
+
+### 43. `cilium_troubleshoot_connectivity` prompt (FR11) is scoped to `(namespace, pod)`, doesn't fit the diffuse/fleet-wide symptoms it was built for, and never emits the mandatory `context=` parameter
+
+**File:** `src/k8s_mcp/prompts.py:38-59` (`cilium_troubleshoot_connectivity`), `src/k8s_mcp/server.py:213-215` (prompt registration)
+**Severity:** Medium — the prompt runs and returns text, but following its own literal instructions produces non-functional tool calls, and its parameter shape doesn't match the class of problem it was scoped to help with.
+**Reported live (2026-09-25):** invoking the shipped prompt via `/mcp__alfa-k8s__cilium_troubleshoot_connectivity kube-system kubelet` correctly bound `namespace="kube-system"`, `pod="kubelet"` and returned the expected Step 1/2/3 text — the argument binding itself works. But two real problems surfaced running it for real:
+1. **Missing `context=`.** None of the three generated calls (`k_get(resource="ciliumendpoints", name=..., namespace=..., output="yaml")`, `k_get(resource="ciliumnetworkpolicies", namespace=..., output="yaml")`, `k_describe(resource="pods", name=..., namespace=...)`) include `context=`, yet every `alfa-k8s` tool requires `context` as a mandatory parameter (`server.py`'s `get()`/`describe()` wrappers both declare `context: str` with no default). A calling model following the prompt's literal text verbatim would get a parameter-validation failure on every step, not real data — confirmed by having to add `context="sinsia-pl"` manually to reproduce the prompt's own instructions.
+2. **Wrong scoping for the actual use case.** The prompt assumes the caller already knows a specific offending pod. The class of problem this project's own comparison research (this session, 2026-09-25) actually needed Cilium troubleshooting for — the recurring `:10250`/kubelet-connectivity timeout investigated the prior day — is diffuse and fleet-wide (intermittent, spans many nodes/pods, not attributable to one pod up front). Forcing `(namespace, pod)` as required parameters means the prompt can't be invoked at all for exactly the symptom class it was meant to help diagnose; the user explicitly flagged this design mismatch live.
+
+**Requested correction (from the user, 2026-09-25):** change the signature to `(cluster, issue_description)` — `cluster` becomes the `context=` value threaded into every generated call (fixing problem 1 as a side effect), and `issue_description` is free text describing the symptom rather than a specific pod name. Since a static prompt template can't branch on free-text content, the returned guidance needs restructuring into something that covers both a single-pod complaint and a fleet-wide symptom (e.g. two paths: cluster-wide triage via `ciliumnodes`/`ciliumclusterwidenetworkpolicies`/`ciliumidentities` first, narrowing to a specific pod's `ciliumendpoints`/`ciliumnetworkpolicies` only if one is named in the description) rather than a single fixed 3-step recipe that assumes a pod is already known. Should also explicitly note that Cilium's own eBPF drop-reason counters (`cilium_drop_count_total` by `direction`/`reason`) are Prometheus-exposed, not reachable via any `k_*` tool here — relevant context for the fleet-wide path specifically, since that's exactly what the prior day's real investigation used and this tool can't reach.
+
+**Proposed next step:** rewrite `cilium_troubleshoot_connectivity(cluster: str, issue_description: str)` in `prompts.py` per the above, update the `server.py` prompt registration's parameter names to match, and rewrite `tests/unit/test_prompts.py::TestCiliumTroubleshootConnectivity` for the new signature and content (still asserting exact resource strings and exact field paths per the file's existing test convention, plus a new assertion that every generated call includes `context=`). Not yet implemented — filed as a correction, not started.
 
 ---
 
 ## FIXED
 
-### 39. `k_get_helm_release` returns a chart's `values` block fully unredacted — the pre-implementation decision to address this was never made
-
-**File:** `src/k8s_mcp/access.py` (`_VERB_MAP`), `tests/unit/test_access.py`
-**Severity:** High — a real, currently-shipping exposure. A Helm chart's `values.yaml` commonly carries plaintext credentials, API keys, or connection strings — `k_get_helm_release` returned all of it verbatim at `readonly` access level.
-**Root cause:** `get_helm_release.py:169` — `"values": data.get("values", {})`, no filtering, masking, or opt-in gate. The implementation plan (SPEC.md §8 FR12) explicitly named this as an open decision but the answer was never supplied; the code shipped as if the answer were "no redaction."
-**Decision (2026-09-25):** Option B — raise the access gate. `k_get_helm_release` moved from `readonly` to `admin` in `access.py`'s `_VERB_MAP`, matching `k_get_secret_to_file`'s precedent of gating by risk rather than by verb.
-**Fix:** Removed `get_helm_release` from `readonly` and `readwrite` verb sets in `access.py`; kept it in `admin`. Updated `test_access.py` expected verb sets and added `test_get_helm_release_admin_only` asserting the tool is unreachable below `admin`. Updated `test_server.py`'s `_ACCESS_TOOLS` dict accordingly. Full suite: 330 passed, 9 skipped.
-
----
-
-### 41. No test in this repo exercises `server.py`'s `_dispatch()`/tool-registration path — every "unit test" calls handler functions directly, so signature mismatches between `_dispatch()` and any handler ship undetected
-
-**File:** `tests/unit/test_server.py` (new), `src/k8s_mcp/server.py`
-**Severity:** High — this is the root cause that let Issue 40 ship with 14 passing tests and a "committed" status. First flagged as a residual gap under Issue 13, explicitly marked "low priority, not re-blocking" at the time. Issue 40 is the predicted regression materializing.
-**Root cause:** `_dispatch()` (`server.py:47-73`) injects `discovery_cache` into every handler call via `**kwargs`. Nothing verified that every registered handler's signature actually accepts what `_dispatch()` sends.
-**Fix:** Added `tests/unit/test_server.py` with a parametrized smoke test (`TestDispatchPathSmoke::test_dispatch_no_type_error`) that calls `_dispatch()` directly for every tool at every access level (`readonly`/`readwrite`/`admin`) with the exact kwargs each wrapper in `server.py` passes, mocking `resolve`/`run_kubectl`/`run_kubectl_checked` at the tool-module level. 33 test cases (11 tools × 3 access levels, 7 skipped for tools not available at that level), all passing. Also fixed `_dispatch()`'s `discovery_cache` type annotation from `DiscoveryCache` to `DiscoveryCache | None` to match the handlers' actual signatures. Full suite: 331 passed, 7 skipped.
-**Verified (2026-09-25):** `python -m pytest tests/unit/ -q` → `331 passed, 7 skipped in 0.53s`. The 7 skips are correct (tools not registered at that access level: apply/patch/delete at readonly, exec/get_secret_to_file at readonly+readwrite).
-
----
-
-### 40. `k_auth_can_i` crashed on every real call — two independent bugs, three commits, finally resolved and independently confirmed end-to-end
-
-**File:** `src/k8s_mcp/tools/auth_can_i.py:84`, `src/k8s_mcp/server.py:47,65,68,70` (both root causes)
-**History (kept in full — the process failure here is as instructive as the bug):**
-1. Originally filed: `handle_auth_can_i()` didn't accept the `discovery_cache` kwarg `_dispatch()` unconditionally sends every handler (`TypeError: handle_auth_can_i() got an unexpected keyword argument 'discovery_cache'`).
-2. Commit `3115af3` added `discovery_cache: object | None = None` to the handler's signature and a test calling the handler **directly**. That test passed, and the commit's own KNOWN_ISSUES.md edit asserted "Verified... 304 tests pass" with an unfilled `<commit-hash>` placeholder — without ever calling through `_dispatch()`. A live-server check then found the tool **still crashed**, on a second, unrelated bug: `_dispatch()`'s own first parameter was named `verb`, colliding with `k_auth_can_i`'s own `verb` domain argument (`TypeError: _dispatch() got multiple values for argument 'verb'`).
-3. Commit `c6d7e85` renamed `_dispatch()`'s first parameter from `verb` to `tool_verb` and updated all 12 call sites (`server.py:107,116,127,137,146,155,165,175,184,192,200`), added `test_dispatch_path_no_verb_collision` (which genuinely calls `_dispatch()` itself, not just the handler, with kwargs matching the real `auth_can_i` wrapper's call shape) — and again wrote a "Verified... 305 tests pass" claim with another unfilled `<commit-hash>` placeholder.
-**Independently verified this time — genuinely, not just re-reading the diff (2026-09-25):** built the real FastMCP server via `server.main()`, registered all tools, and called the actual registered `k_auth_can_i` tool through FastMCP's own `call_tool()` dispatch entry point, with `subprocess.run` mocked at the lowest seam so the full real chain (`server.py` → `_dispatch()` → `handle_auth_can_i()` → `run_kubectl()` → `subprocess.run`) was genuinely exercised. **Both modes work, no exception:** single-check (`verb="get", resource="pods"`) returned `{"allowed": True, "command": [...]}`; `list_all=True` returned `{"permissions": {"pods": [...], "secrets": [...]}}`. Spot-checked `k_get`/`k_delete`/`k_list_resources` the same way — no collateral breakage from the rename across all 12 call sites. Full suite: `305 passed`, matching the claim. Committed as `c6d7e85` (the `<commit-hash>` placeholder in both prior commits' doc edits is now resolved by this entry replacing them).
-**Test:** `test_dispatch_path_no_verb_collision` (`tests/unit/test_tools_auth_can_i.py:242-265`) plus the independent live-dispatch check above — this is the first of the three attempts verified by something other than a test that evaded the actual dispatch path.
-**Process note, not closed out by this fix:** two consecutive "Verified" claims in this file were false or unconfirmed at the time they were written, both sharing the same root cause — a regression test that calls a handler directly instead of through `_dispatch()`. The fix that would prevent this *class* of false claim (Issue 41's proposed `tests/unit/test_server.py`) still does not exist. Until it does, any future "Verified"/"implemented" claim in this file involving `server.py`'s dispatch path should be treated as unconfirmed until independently re-checked the same way this one finally was — not trusted at face value.
-
----
-
-### 37. `pyyaml` is an undeclared transitive dependency — `pyproject.toml` never lists it, yet `k_apply`/`k_patch` rely on it
-
-**File:** `pyproject.toml` (`dependencies` list), `src/k8s_mcp/tools/apply.py` (`import yaml` inside `_parse_manifest()`)
-**Fix:** Added `"pyyaml>=6.0"` to `pyproject.toml`'s `dependencies` list. No code change needed — `apply.py`'s `import yaml` is already correct, it just needs the package guaranteed present.
-**Test:** none needed beyond the existing `TestHandleApplyYamlErrorDetail::test_valid_yaml_still_works` (already covers the "YAML parsing works" path) — this is a packaging-manifest fix, not a code-behavior fix.
-**Verified (2026-09-25):** confirmed `pyproject.toml:16` has `"pyyaml>=6.0"` in `dependencies`. Committed as `f1680db`.
-
----
-
-### 38. Resolved `group`-qualification is discarded before reaching kubectl — canonical-name collisions (`nodes` vs. `metrics.k8s.io`'s `NodeMetrics`, and `pods`/`events` similarly) silently execute against the wrong API group
-
-**PRD §12 cross-reference (added 2026-09-25):** this issue was a real, live violation of a named project-level success criterion — PRD.md §12's "Ambiguous-resource calls... never silently resolve to the wrong API group." Not just an internal code defect; the project's own stated success bar was unmet for the period this was open. Now met again, re-confirmed via §12's own status annotation (added alongside this note).
-**File:** `src/k8s_mcp/tools/get.py:96`, `delete.py:44`, `describe.py:40`, `patch.py:72`
-**Fix:** Replaced `resource_meta.canonical` with `resource_meta.fully_qualified_name` in all four tools when building the kubectl resource argument. `fully_qualified_name` collapses to plain `canonical` when `group == ""` (zero behavior change for core-table entries) and returns `f"{canonical}.{group}"` when `group` is set, which is valid `kubectl get TYPE.GROUP` syntax.
-**Test:** Added 8 tests across `tests/unit/test_tools_get.py`, `test_tools_delete.py`, `test_tools_describe.py`, `test_tools_patch.py` (`TestHandleGetFullyQualifiedResource`, `TestHandleDeleteFullyQualifiedResource`, `TestHandleDescribeFullyQualifiedResource`, `TestHandlePatchFullyQualifiedResource`) — each asserts that groupful resources produce `fully_qualified_name` in kubectl args, and groupless resources produce plain `canonical`.
-**Verified (2026-09-25):** confirmed directly in all four files (`get.py:96`, `delete.py:44`, `describe.py:40`, `patch.py:72`) — each builds kubectl args from `resource_meta.fully_qualified_name`, not `.canonical`. All 8 tests read directly and confirmed to assert the actual group-qualified arg (e.g. `["get", "nodes.metrics.k8s.io"]`) for groupful resources, plus a groupless regression guard in each. Broader `grep -rn "\.canonical\b" src/k8s_mcp/` confirms no other call site builds a kubectl exec argument from bare `.canonical` (remaining hits are in `resolver.py`'s error-message candidate lists and `list_resources.py`'s display fields — neither executed). `264 tests pass`. Committed as `f1680db`.
-
----
-
-### 35. `prune()` had no `Secret`-specific handling — `k_get`/`k_apply`/`k_patch`/`k_delete` all returned a Secret's full `.data` map verbatim
-
-**File:** `src/k8s_mcp/output/pruning.py`
-**Fix:** Added `Secret`-specific handling to `prune()`: when `kind == "Secret"`, `.data` and `.stringData` are replaced with `{"redacted_keys": sorted(keys)}` — key names only, never values. This applies uniformly across all four standard JSON paths (`k_get`, `k_apply`, `k_patch`, `k_delete`) since they all pass `kind=resource_meta.kind` into `prune()`. No opt-out parameter; this is a hard block matching R7/R8 safety-by-default posture. Callers needing values use `k_get_secret_to_file`.
-**Test:** Added 7 tests in `tests/unit/test_pruning.py` (`TestPruneSecretRedaction`) covering: `.data` redacted to `{"redacted_keys": [...]}`, `.stringData` redacted, both redacted simultaneously, empty `.data` unchanged, no `data` field unchanged, `kind=None` no redaction, non-Secret `.data` preserved.
-**Verified (2026-09-25):** confirmed hard-block (no `reveal_secrets`-style parameter exists anywhere in code or docs — grepped); confirmed all four call sites (`get.py`, `apply.py`, `patch.py`, `delete.py`) route through the same shared `prune()`, no per-tool duplication; confirmed `k_get_secret_to_file` (FR9) is unaffected — it never calls `prune()`, using its own separate decode/write path, so no double-encoding risk. Committed as `c223fb5`.
-
----
-
-### 36. `apply.py`'s `_parse_manifest()` swallows all YAML parse errors via a bare `except Exception: pass`, losing diagnostic detail
-
-**File:** `src/k8s_mcp/tools/apply.py:31-48`
-**Fix:** Changed `_parse_manifest()` to return `(data, yaml_error_detail)` tuple. The `except Exception: pass` was replaced with `except yaml.YAMLError as e` (import moved to its own try/except for ImportError), and the error message is threaded into `handle_apply()`'s `invalid_manifest` call — e.g. `"manifest is not valid JSON or YAML: <yaml parser message>"`. Empty/invalid manifests without a YAML error still get the generic `"manifest is empty or invalid"` detail.
-**Test:** Added 3 tests in `tests/unit/test_tools_apply.py` (`TestHandleApplyYamlErrorDetail`): invalid YAML produces detail containing the YAML parser's error text; empty manifest still gets generic error; valid YAML continues to work.
-**Verified:** 256 tests pass (253 + 3 new). Confirmed directly — `_parse_manifest("bad: yaml\n[")` now returns `({}, "manifest is not valid JSON or YAML: ...")` and `handle_apply()` surfaces the YAML parser's actual error message in the `invalid_manifest` response detail.
-**Re-verified independently (2026-09-25):** re-read `apply.py` fresh, not from the fix description above. Confirmed the new `tuple[dict[str, Any], str | None]` return shape has exactly one call site and it's correctly unpacked; confirmed zero remaining `except Exception` in the file; traced `yaml.safe_load("bad: [")` end-to-end — it raises a real `yaml.parser.ParserError` whose message reaches `invalid_manifest`'s `detail` field unmodified. `TestHandleApplyYamlErrorDetail`'s 3 tests assert on actual message content, not just error presence. Committed as `583f431`. Broader `grep -rn "except Exception" src/k8s_mcp/` returns zero hits elsewhere — this was the only instance of the pattern.
-
----
-
-### 1. `bound_get_names({})` returns `[{}]` instead of `[]`
-
-**File:** `src/k8s_mcp/output/bounding.py:26`
-**Fix:** Added early return guard for empty dict before the `"kind"` check.
-
----
-
-### 2. `prune()` does not strip `last-applied-configuration` annotation
-
-**File:** `src/k8s_mcp/output/pruning.py:62-64, 78-86`
-**Fix:** Target nested `metadata["annotations"]` dict instead of `metadata` directly; deep-copy annotations in `_deep_copy_dict()` to prevent shared references.
-
----
-
-### 3. `matches()` operator precedence bug gates entire OR-chain behind `if self.group`
-
-**File:** `src/k8s_mcp/resolution/models.py:46`
-**Fix:** Removed the dead/redundant last clause — `fully_qualified_name` already covers every case.
-
----
-
-### 4. `_fuzzy_suggest()` crashes on mixed `list[str | ResourceMeta]`
-
-**File:** `src/k8s_mcp/resolution/resolver.py:98-101`
-**Fix:** Build unified `ResourceMeta` candidate pool from core table + discovery cache, call `_fuzzy_suggest` once instead of twice with mixed types.
-
----
-
-### 5. kubectl non-zero exit codes are never detected — `map_kubectl_error()` is dead code
-
-**File:** `src/k8s_mcp/kubectl/runner.py`, `src/k8s_mcp/kubectl/errors.py`, `src/k8s_mcp/tools/*.py`
-**Fix:** Added `run_kubectl_checked()` wrapper that calls `map_kubectl_error()` on non-zero exit codes; updated all tool call sites (`get.py`, `logs.py`, `apply.py`, `patch.py`, `delete.py`, and later `describe.py`/`exec_.py` via Issue 8) to use it; added `tests/unit/test_kubectl_errors.py`.
-**Verified:** confirmed by reading `runner.py`/`errors.py` and every tool call site directly — all route through `run_kubectl_checked`; 6/6 new tests in `test_kubectl_errors.py` pass.
-
----
-
-### 6. `k_apply` skips R8 pre-execution validation
-
-**File:** `src/k8s_mcp/tools/apply.py`
-**Fix:** Added YAML parsing fallback (`yaml.safe_load`), kind resolution via `resolve()`, and `validate()` call before execution.
-**Verified:** confirmed directly — `handle_apply()` now resolves `kind` → `ResourceMeta` and calls `validate()` before touching `run_kubectl_checked`, matching every other mutating tool. The two validation error paths this fix originally added as ad hoc dicts were subsequently moved onto `errors.py` helpers — see Issue 14.
-
----
-
-### 7. `k_describe` / `k_exec` bypass the namespace allowlist and audit logging
-
-**File:** `src/k8s_mcp/server.py`
-**Fix:** Registered `k_describe` and `k_exec` through the same shared dispatch path as every other tool; added `"describe"` to `_VERB_MAP`; added `"exec"` to the mutating-audit-log tuple.
-**Verified:** confirmed directly in `server.py` — both tools route through `_dispatch(...)` (the successor to the original `_build_tool_fn`, see Issue 13), `"exec"` is in the audit-log tuple.
-
----
-
-### 8. `k_describe` / `k_exec` call `subprocess` directly instead of `kubectl/runner.py`
-
-**File:** `src/k8s_mcp/tools/describe.py:45-53`, `src/k8s_mcp/tools/exec_.py:51-59`
-**Fix:** Made `-o json` opt-out in `run_kubectl` (`output_format: str | None = "json"` parameter); updated `describe.py` and `exec_.py` to call `run_kubectl_checked(context, args, output_format=None)` instead of `subprocess.run()` directly.
-**Verified:** confirmed directly — neither file imports `subprocess` anymore. **Residual gap (not reopened, just flagged):** `src/k8s_mcp/contexts/kubeconfig.py:9,23` still calls `subprocess.run()` directly and remains untouched — the original solution plan's option (b) ("explicitly document this file as a narrow, justified exception... and leave it as is") would resolve this with a one-line comment, but that comment was never added. Low priority; the higher-risk call sites (describe/exec, which run arbitrary/mutating-adjacent commands) are fixed.
-
----
-
-### 10. `k_logs` never applies its documented default `tail=100`
-
-**File:** `src/k8s_mcp/tools/logs.py:26,46,56`
-**Fix:** Applied default `tail=100` at the tool boundary — `handle_logs()` now resolves `effective_tail = tail if tail is not None else 100` and always passes `--tail` to kubectl and `bound_logs()`.
-**Verified:** confirmed directly in `logs.py`.
-
----
-
-### 11. `access.py`'s `_VERB_MAP` omits `"describe"`, drifting from R7's stated source of truth
-
-**File:** `src/k8s_mcp/access.py:24-28`, `src/k8s_mcp/server.py`
-**Fix:** Added `"describe"` to all three tiers in `_VERB_MAP`; updated `server.py` registration to check `"describe" in allowed`; added `test_readonly_includes_describe` and `test_tool_name_describe` to `tests/unit/test_access.py`.
-**Verified:** confirmed directly in `access.py`; both new tests pass.
-
----
-
-### 12. `kubectl/errors.py`: duplicated `"unauthorized"` check (dead condition)
-
-**File:** `src/k8s_mcp/kubectl/errors.py:43`
-**Fix:** Removed the duplicate `"unauthorized" in stderr_lower` clause.
-**Verified:** confirmed directly.
-
----
-
-### 13. Server fails to start at all — `FastMCP.add_tool()` API mismatch, plus a deeper `**kwargs` schema incompatibility
-
-**File:** `src/k8s_mcp/server.py`
-**Fix (2 rounds):** Round 1 replaced `app.add_tool(wrapped, name=..., description=...)` with `app.tool(wrapped, name=..., description=...)` — fixed the immediate crash, but left `_build_tool_fn`'s `**kwargs`-shaped handler in place, which FastMCP 4.0.4 rejects when building a tool's schema (`ValueError: Functions with **kwargs are not supported as tools`) — round 1 was reopened after this was reproduced live. Round 2 replaced the generic `_build_tool_fn`/`_TOOL_DEFS` loop entirely with explicit, individually typed wrapper functions per tool (`get`, `logs`, `apply`, `patch`, `delete`, `describe`, `exec_cmd`), each registered via `@app.tool(name=..., description=...)`, with shared allowlist/audit-log/discovery-cache logic factored into a `_dispatch()` helper each wrapper calls.
-**Verified:** booted the server myself, `uv run k8s-mcp --access-level {readonly,readwrite,admin}` — all three start cleanly and reach `"Starting MCP server 'k8s-minimal-mcp' with transport 'stdio'"` with no traceback. 87/87 tests pass. Genuinely fixed.
-**Still open (low priority, not re-blocking):** no `tests/unit/test_server.py` was added, so this verification was manual, not automated — a future regression here wouldn't be caught by the suite. `pyproject.toml`'s `fastmcp` pin is also still unbounded (`fastmcp>=0.2`) rather than pinned to a tested range.
-
----
-
-### 14. `k_apply`'s new validation errors are assembled ad hoc, not via `errors.py`
-
-**File:** `src/k8s_mcp/tools/apply.py:54-65`, `src/k8s_mcp/errors.py`
-**Fix:** Added `invalid_manifest(context: str, detail: str)` helper to `errors.py` with new `ERROR_INVALID_MANIFEST = "invalid_manifest"` constant. Replaced both ad hoc dicts in `apply.py` with calls to the new helper.
-**Verified:** confirmed directly — `apply.py` imports and calls `invalid_manifest(...)` for both the empty-manifest and missing-`kind` cases; `errors.py` has the new helper matching the existing pattern. 87/87 tests pass.
-
----
-
-### 9. Discovery cache parser still mis-maps columns — now produces silently-corrupted `ResourceMeta`, not just an empty result
-
-**File:** `src/k8s_mcp/resolution/discovery.py:83-158`
-**Fix:** Replaced fixed-position column indexing with regex-based parsing that correctly handles the real `kubectl api-resources -o wide` header format (`NAME SHORTNAMES APIVERSION NAMESPACED KIND VERBS CATEGORIES`). APIVERSION is split on `/` to recover group/version. VERBS bracket span is located via regex. Empty SHORTNAMES columns are handled correctly.
-**Test:** Added `tests/unit/test_discovery.py` with 16 tests covering core resources, apps resources, CRDs, cluster-scoped resources, empty output, separator lines, and edge cases. Created fixture at `tests/fixtures/kubectl_outputs/api_resources_wide.txt`.
-**Verified:** 103/103 tests pass (87 original + 16 new).
-
----
-
-### 15. `k_get` crashes with `'bytes' object has no attribute 'read'` on `pods` resource
-
-**File:** `src/k8s_mcp/resolution/core_table.py:20-24`
-**Severity:** Blocks all resource operations — `load_core_table()` fails unconditionally on first call, affecting every tool that calls `resolve()` (`k_get`, `k_logs`, `k_apply`, `k_patch`, `k_delete`, `k_describe`, `k_exec`). Only `k_list_contexts` is unaffected.
-**Fix:** Changed `_load_toml()` from `tomllib.load(raw)` (expects file object) to `tomllib.loads(raw.decode("utf-8"))` (correct for already-in-memory bytes).
-**Test:** Added `tests/unit/test_core_table.py` with 5 tests calling `load_core_table()` unmocked against the real `data/core_resources.toml`, asserting non-empty result and specific resources (`pods`, `deployments`, `services`) with correct metadata.
-**Verified:** 108/108 tests pass (103 original + 5 new).
-
----
-
-### 16. `k_get` with `all_namespaces=true` rejects `pods` resource — requires explicit `namespace`
-
-**File:** `src/k8s_mcp/resolution/resolver.py:107-142`, `src/k8s_mcp/tools/get.py:44`
-**Severity:** Blocks cross-namespace pod listing
-**Fix:** Added `all_namespaces: bool = False` parameter to `validate()` in `resolver.py`; updated namespace-scope check to allow `namespace=None` when `all_namespaces=True`; updated `get.py:44` to pass `all_namespaces=all_namespaces` to `validate()`.
-**Test:** Added 2 tests in `tests/unit/test_resolver.py` (`test_validate_namespaced_with_all_namespaces`, `test_validate_namespaced_without_all_namespaces_still_rejects`); added `tests/unit/test_tools_get.py` with 3 tests for `handle_get` with `all_namespaces=True/False`.
-**Verified:** 113/113 tests pass (108 original + 5 new).
-
----
-
-### 17. `k_exec`'s `-c <container>` flag placed after the `--` separator — container selection silently doesn't work
-
-**File:** `src/k8s_mcp/tools/exec_.py:44-49`
-**Severity:** `k_exec`'s documented `container` param (PRD §6) never actually selected a container — kubectl requires `-c <container>` *before* `--`; the original code appended it *after*, so it was passed through as part of the executed command instead of being parsed as kubectl's own flag.
-**Fix:** Reordered args to `["exec", pod]` → `["-c", container]` (if set) → `"--"` → `command`.
-**Test:** Added `tests/unit/test_tools_exec.py` (new file, 7 tests) — `test_container_flag_placed_before_separator` asserts the exact resulting arg list `["exec", "mypod", "-c", "sidecar", "--", "ls", "-l"]`.
-**Verified:** confirmed directly in `exec_.py`; found while scoping test coverage for previously-untested tool modules (FR4), fixed alongside adding the tests rather than left as a documented gap.
-
----
-
-### 18. `k_list_contexts` silently swallows kubeconfig-read errors, returning an empty context list
-
-**File:** `src/k8s_mcp/tools/contexts.py:24-26`
-**Severity:** A real kubeconfig-read failure was indistinguishable from "this kubeconfig legitimately has zero contexts" — the model had no way to tell the two apart.
-**Fix:** `handle_list_contexts` now returns `envelope(result, context, "k_list_contexts", success=False)` on error instead of `envelope_list_contexts([], context)`.
-**Test:** Added `tests/unit/test_tools_contexts.py` (new file) asserting an error from `list_kubeconfig_contexts()` propagates as a visible `success=False` response, not a silently empty list.
-**Verified:** confirmed directly; found and fixed alongside Issue 17 as part of the same FR4 test-coverage pass.
-
----
-
-### 19. `k_get`'s `annotation_selector` always returns zero matches when combined with `name` (single-resource fetch)
-
-**File:** `src/k8s_mcp/tools/get.py` (filtering block, now at lines 119-135)
-**Severity:** Shipped broken in the initial `annotation_selector` implementation — the feature was completely non-functional for `k_get <resource> <name> annotation_selector=...`, arguably the single most natural way to use it, while working correctly for unnamed/list queries. Shipped with 9 passing tests, none of which exercised the single-resource path.
-**Root cause:** `items = data.get("items", [data] if "kind" not in data else [])` — every real k8s object has a `"kind"` field, so for a single-resource fetch (no `"items"` key present) the ternary always took the `else` branch, producing `[]` instead of the intended `[data]`. The condition was inverted.
-**Fix:** Replaced with `is_list = "items" in data; items = data["items"] if is_list else [data]`, and rebuilt the surrounding block to construct a corrected `data` shape for all three cases (list, single-match, single-no-match) instead of mutating the original object in place.
-**Test:** Added `test_annotation_selector_single_resource_match` and `test_annotation_selector_single_resource_no_match` to `tests/unit/test_tools_get.py`, asserting actual match content (`matched == 1`, `items[0]["name"] == "mypod"`), not just absence of a crash — verified these would have caught the original bug (under the old code, the "match" test's assertion would have failed).
-**Verified:** confirmed by tracing execution against all three response shapes by hand, not just re-reading the diff.
-
----
-
-### 20. `k_get`'s `output=wide` was byte-identical to the default (unrequested) output — not a distinct format at all
-
-**File:** `src/k8s_mcp/output/bounding.py` (formerly lines 112-114 of `apply_output_format`)
-**Severity:** Documented in PRD §6 as a distinct on-request alternative to name-only output; in practice a caller requesting `output=wide` got nothing beyond the default — `apply_output_format`'s `"wide"` branch just called `bound_get_names(data)`, the same function used when no `output` was given at all.
-**Root cause:** kubectl's real `-o wide` output is resource-kind-specific (computed columns like pod `AGE`/`STATUS`/`IP`, entirely different for a deployment or node) — reproducing it generically from already-fetched JSON would mean reimplementing kubectl's own per-kind table-printer logic in Python, which was never attempted; the `"wide"` branch was a stub that fell back to the name-only shape instead.
-**Fix:** `tools/get.py` now has an early branch — `output == "wide"` invokes kubectl with the actual `-o wide` flag (`run_kubectl_checked(context, args, output_format="wide")`) and returns kubectl's own plain-text table verbatim as `{"output": result["stdout"]}`, same precedent as `k_describe`'s text passthrough, instead of trying to derive it from the default `-o json` fetch. The now-dead `"wide"` branch in `bounding.py` was removed.
-**Test:** Added `TestHandleGetWide` in `tests/unit/test_tools_get.py` — asserts `run_kubectl_checked` is called with `output_format="wide"` (not the default `"json"`) and the response is the raw text, untouched by `prune()`/`bound_get_names()`.
-**Verified:** confirmed directly in both files; `apply_output_format` no longer mentions `"wide"` at all.
-
----
-
-### 21. `annotation_selector` + `output=wide` combined silently dropped the selector with no error
-
-**File:** `src/k8s_mcp/tools/get.py`
-**Severity:** Low — `wide`'s raw-text output was never filterable to begin with, so no data-correctness issue, but the two structurally similar "incompatible with filtering" combinations were handled inconsistently: `annotation_selector` + `jsonpath_template` was explicitly rejected with an `invalid_selector` error, while `annotation_selector` + `output=wide` silently ignored the selector and returned the unfiltered wide text with no indication filtering didn't happen.
-**Fix:** Added an explicit fail-fast rejection for `annotation_selector` + `output=wide`, mirroring the existing `jsonpath_template` check — both now return `invalid_selector` before any kubectl call.
-**Test:** Added `test_annotation_selector_rejects_output_wide` to `tests/unit/test_tools_get.py`, asserting the error and that `run_kubectl_checked` is never called.
-**Verified:** confirmed directly; found during review of Issue 20's fix, fixed immediately rather than left as a follow-up.
-
----
-
-### 22. PRD §6's Tool Specification table repeatedly fell behind shipped, model-facing tool params
-
-**File:** `PRD.md` §6 (Tool Specification table)
-**Severity:** Documentation-only, but persistent — happened twice in a row (once when `output=jsonpath`/`jsonpath_template` shipped for `k_get`/`k_apply`/`k_patch`, again when `annotation_selector` shipped for `k_get`) before being corrected, meaning the table was inaccurate against the running code for multiple review rounds each time.
-**Fix:** §6's `k_get` row now lists `annotation_selector` alongside `jsonpath_template`, and its description column accurately reflects `output=wide`'s real behavior (kubectl's own `-o wide` text passthrough) instead of the stale "byte-identical to default, known gap" note, plus the new `annotation_selector` incompatibility rules (rejects both `jsonpath_template` and `output=wide`).
-**Note:** this is a process gap, not a one-off mistake — nothing currently forces §6 to be touched in the same change that ships a new tool param. No code fix applies here; flagging so a future param addition doesn't repeat the pattern a third time.
-**Recurred a third and fourth time (2026-09-25):** PRD §6's `k_apply` row shipped with `src_file` in the Required column formatted identically to genuinely-both-required rows (`manifest`, `src_file`), reading as AND when the actual requirement is XOR — corrected to `` `manifest` or `src_file` (exactly one) ``. Separately, the *same class* of drift showed up in SPEC.md rather than PRD.md this time: §8's FR10 section header was left reading "Status: Not started" after the feature shipped, contradicting KNOWN_ISSUES.md's own "implemented" claim for the same feature — also corrected. Neither was caught until an explicit verification pass; this pattern is not self-correcting and has now recurred four times across two different documents.
-
-**Recurred a fifth time (2026-09-25), a new flavor — stale open-decision text, not a stale status line:** FR11 shipped with its namespace-validation question actually resolved in code (no `--allow-namespaces` check, since prompts perform no cluster access), but both PRD.md §15 and SPEC.md §8's "decision needed"/"open question" blurbs were left reading as unresolved — now closed out to state what was actually decided. Also found in the same pass: SPEC.md §2's Module Layout tree and §4's Startup Sequence were never updated for FR11's new `prompts.py` module or its registration step — now added. Same underlying process gap as the four recurrences above (nothing forces a doc touch in the same change that ships a feature), just manifesting as an un-updated decision/structure block instead of an un-updated status/table row.
-
-**Recurred a sixth and seventh time (2026-09-25):** FR12 shipped with `get_helm_release.py`/`test_tools_get_helm_release.py` absent from SPEC.md §2's Module Layout tree (sixth) and with no row for `k_get_helm_release` in PRD.md §6's Tool Specification table (seventh) — the latter a real gap, not a non-issue, since FR12 is a genuine tool (unlike FR11's prompts, which are correctly exempt from §6). Both now added. Separately, the FR12 status write-up's own test count was wrong ("12" vs. the actual 13, confirmed by running the suite) — a small factual-accuracy lapse in the same status text this pattern keeps drifting in, not a new category of drift but worth naming. FR12 also produced a materially more serious variant of this same "shipped without closing the loop" failure mode — see Issue 39 — where a flagged pre-implementation *security* decision, not just a doc string, was left unresolved.
-
-**Recurred an eighth time (2026-09-25), across four locations at once, and finally traced to a root cause instead of just patched again:** FR13 shipped with `auth_can_i.py`/its test file absent from SPEC.md §2's Module Layout tree, no row in PRD.md §6's Tool Specification table, and PRD.md §12's "Status against current `main`" paragraph still describing FR12 as the most recent feature — all now fixed. This recurrence prompted the actual structural fix instead of another one-off patch: a **Definition of Done checklist** (top of this section) that a Status line may not claim "implemented" without satisfying, and Issue 41 (a dispatch-path smoke test) closing the specific gap that let a *functionally broken tool* (Issue 40) carry an "implemented, unit-tested, and committed" label. Eight recurrences of "ship the code, forget a doc" is the point at which "review harder" stops being a credible fix — see the Definition of Done checklist for what replaces it.
-
-**Recurred a ninth time (2026-09-25) — notably, on the exact commit that fixed Issue 39, itself a response to earlier drift:** `5ce466b` (moving `k_get_helm_release` from `readonly` to `admin`) touched `access.py` and two test files but never opened PRD.md or SPEC.md, leaving five stale references live: PRD §6's tool row (still said `readonly`, still called the redaction gap "unresolved"), PRD §12's tool-count paragraph (still said 7 readonly), SPEC §2's module-layout comment (still said `readonly`/unredacted), SPEC §8's FR12 redaction note (still said "open"), and — the most concrete instance — SPEC §2 flatly stating `test_server.py` "does NOT exist yet," false as of the same author's own prior commit (`cbe51ca`) shipping that exact file. The **Definition of Done checklist** existed by this point and was not followed. This is not a knowledge gap — it's a process step being skipped under time pressure, nine times in a row. Whoever implements the next FR should treat the checklist as a literal pre-commit gate, not a document to have read once.
-
----
-
-### 23. `k_apply`/`k_patch`'s `output=json`/`yaml` was non-functional
-
-**File:** `src/k8s_mcp/tools/apply.py:114`, `src/k8s_mcp/tools/patch.py:80`
-**Severity:** Same class of gap as Issue 20 (`k_get`'s `output=wide`) — `output` was documented (PRD §6) as accepting `json`/`yaml`, but the code only ever checked it against `"jsonpath"`; any other value was silently ignored.
-**Fix:** Added an `apply_output_format()` call after `prune()` in both tools' non-jsonpath success paths — `output="yaml"` now returns `{"_yaml": <string>}`, `output="json"`/unset is unchanged. Added an explicit `invalid_output` fail-fast rejection for `output="wide"` on both tools (kubectl's `-o wide` has no meaningful semantics for `apply`/`patch`), chosen over a silent no-op per the SPEC's own recommendation.
-**Test:** `TestHandleApplyOutputFormat`/`TestHandlePatchOutputFormat` in `tests/unit/test_tools_apply.py`/`test_tools_patch.py` — `test_output_yaml`, `test_output_json`, `test_output_wide_rejected` in each (6 new tests total).
-**Verified:** confirmed directly — both tools call `apply_output_format(pruned, output)`; `output="wide"` fails fast via `invalid_output` before `resolve()`/kubectl in both. **Note:** PRD §6's table described this exact behavior as a "known gap" for three review rounds after it shipped, until corrected alongside this entry — the same drift pattern Issue 22 was written to flag, recurring once more. §6 is now updated (see PRD.md's `k_apply` row).
-
----
-
-### 24. `events` resource required per-context discovery on every call
-
-**File:** `src/k8s_mcp/data/core_resources.toml`
-**Severity:** Low — discovery-cache fallback (R5) already worked, this was a cold-start/TTL latency cost, not a correctness bug. Flagged because `events` is a stable core `v1` kind (not a CRD) and fits the core table's own inclusion criteria exactly, same as `pods`/`services`/etc.
-**Fix:** Added a `[[resource]]` entry (`canonical="events"`, `shortnames=["ev"]`, `kind="Event"`, `group=""`, `version="v1"`, `namespaced=true`, `verbs=["get"]`) — purely additive data-file change, no logic touched. PRD R2's rule text (the hardcoded core-table list) updated to include it.
-**Test:** `test_core_table.py::test_contains_events`; `test_resolver.py::test_resolve_events_from_core_table`, `test_resolve_events_by_shortname`.
-**Verified:** confirmed directly — `resolve(context, "events", discovery_cache=None)` resolves from the core table alone, no discovery cache touched; checked all 16 entries for `canonical`/`shortnames`/`kind` collisions, none found.
-
----
-
-### 25. Discovery cache never refreshes on a cold or TTL-expired cache — `resolve()` only retries when the cache already has *some* entries
-
-**File:** `src/k8s_mcp/resolution/resolver.py:70-95`
-**Severity:** Blocks every resource not in `core_resources.toml` (CRDs, `serviceaccounts`, `componentstatuses`, `customresourcedefinitions`) on the first call for any given context, and again every time the 5-minute discovery-cache TTL lapses.
-**Root cause:** the entire "attempt discovery refresh" block was nested inside `if cached is not None:` — `DiscoveryCache.get()` returns `None` on cold cache and TTL expiry, so `refresh()` was never called.
-**Fix:** Restructured tier 2 logic: when `cached is None`, call `refresh()` first; collapse duplicated match/ambiguous blocks into one unified block. Added `cast(list[ResourceMeta], refresh_result)` for type narrowing.
-**Test:** `test_resolve_with_discovery_cache_cold_refresh` — mocks `refresh()` to return populated list, asserts `resolve()` finds the resource. `test_resolve_with_discovery_cache_cold_resource_not_found` — mocks `refresh()` to return a list without the resource, asserts `unknown_resource`.
-**Verified:** confirmed directly — `resolve()` now calls `refresh()` on cold cache; 208 tests pass (2 new tests added).
-
----
-
-### 26. `test_resolve_with_discovery_cache_miss` asserted Issue 25's broken behavior as correct — the reason 207 passing tests never caught it
-
-**File:** `tests/unit/test_resolver.py:118-124`
-**Severity:** Test-quality issue — the one test exercising the cold-cache path asserted the bug was intended behavior.
-**Root cause:** constructed a genuinely empty `DiscoveryCache()` and asserted `resolve()` should give up, without mocking `refresh()` — couldn't distinguish "correctly gave up after trying discovery" from "never attempted discovery."
-**Fix:** Replaced with two tests: `test_resolve_with_discovery_cache_cold_refresh` (mocks `refresh()`, asserts resource is found) and `test_resolve_with_discovery_cache_cold_resource_not_found` (mocks `refresh()`, asserts `unknown_resource` when resource genuinely not in discovery output).
-**Verified:** both new tests pass; old broken test removed.
-
----
-
-### 27. `k_list_resources` returned an empty resource list against a live cluster — root cause not yet confirmed, and not explained by Issue 25
-
-**File:** `src/k8s_mcp/resolution/discovery.py:68-81`
-**Severity:** `k_list_resources(context="<ctx>", search="") → {"resources":[],"count":0}` on a cluster with 200+ real resource types. The `list_resources.py` tool already calls `refresh()` unconditionally on cache miss (no nesting bug), so the issue was that `refresh()` silently passed through an empty parse result as a valid success.
-**Root cause:** `_parse_api_resources()` returns `[]` silently when the output doesn't match the expected header/data format (e.g., different kubectl version output shape). `refresh()` treated this as a legitimate (if empty) success and cached it, so subsequent calls returned an empty list.
-**Fix:** Added `discovery_failure()` error helper to `errors.py`. Modified `refresh()` to check if `_parse_api_resources()` returns `[]` after a successful kubectl call and return a `discovery_failure` error dict instead of silently passing through the empty list. Every real cluster has core resources, so an empty parse result is evidence of a parsing failure.
-**Test:** `TestDiscoveryCacheRefresh::test_refresh_returns_error_on_empty_output` — mocks `run_kubectl` to return empty stdout, asserts `discovery_failure` error is returned. `TestDiscoveryCacheRefresh::test_refresh_succeeds_with_valid_output` — mocks `run_kubectl` to return valid fixture, asserts resources are parsed and cached.
-**Verified:** 210 tests pass (2 new tests added); `refresh()` now returns `{"error": "discovery_failure", "detail": "..."}` when kubectl succeeds but parser finds no resources.
-
----
-
-### 28. `_parse_api_resources()` regex expected `[brackets]` around verbs/categories — `kubectl api-resources -o wide` outputs them as plain comma-separated text, so 0 resources parsed
-
-**File:** `src/k8s_mcp/resolution/discovery.py:132-141` (regex pattern), `src/k8s_mcp/resolution/discovery.py:174-177` (verbs-split)
-**Severity:** Even after Issues 25-27 were fixed, the discovery cache parsed **zero** resources because the regex expected bracketed verbs/categories (`[create,delete,...]`) but `kubectl api-resources -o wide` outputs them as plain space-separated text (`create,delete,...`). Every data line failed to match, `_parse_api_resources()` returned `[]`, and `refresh()` returned `discovery_failure`.
-**Root cause:** The regex pattern used `\s+\[([^\]]*)\]` for both VERBS and CATEGORIES groups, but the actual kubectl output has no brackets — verbs and categories are just the last space-separated tokens on each line. Additionally, the verbs-split code used `verbs_str.split()` (space-split) instead of `verbs_str.split(",")` (comma-split), since kubectl uses commas within the verb list.
-**Fix:** Changed regex from `\s+\[([^\]]*)\]` to `\s+(\S+)` for VERBS and `(?:\s+(\S+))?` for optional CATEGORIES. Changed verbs-split from `verbs_str.split()` to `verbs_str.split(",")`. Updated docstring to reflect actual kubectl output format.
-**Verified:** direct test — `_parse_api_resources(kubectl_output)` now returns 254 resources (previously 0); MCP calls to `customresourcedefinitions`, `serviceaccounts`, `horizontalpodautoscalers`, `limitranges` all succeed via discovery cache.
-
----
-
-### 29. `k_get`'s `jsonpath_template` gives a cryptic, unhelpful error for a specific invalid-syntax mistake (nested `{...}` for multi-field extraction) — not a code defect, but worth fixing anyway
-
-**File:** `src/k8s_mcp/errors.py`, `src/k8s_mcp/resolution/jsonpath_validation.py`, `src/k8s_mcp/tools/get.py`, `src/k8s_mcp/tools/apply.py`, `src/k8s_mcp/tools/patch.py`, `src/k8s_mcp/server.py`
-**Severity:** Not a code defect — the MCP server correctly propagated kubectl's rejection via `kubectl_failure`. But the raw kubectl error (`unrecognized character in action: U+007B '{'`) gives the calling model zero actionable guidance, and the nested-brace mistake (`{.items[*].{a,b}}`) is a natural, tempting analogy to other dict/object-literal syntaxes — now proven to occur in practice.
-**Root cause:** Nested braces for multi-field extraction is not valid Kubernetes jsonpath syntax. The correct syntax is the bracket-list form (`{.items[*]['field1','field2']}`) or a `{range .items[*]}...{end}` loop. kubectl's own jsonpath engine (built on Go's `text/template` action parser) rejects it.
-**Fix:** Added `ERROR_INVALID_JSONPATH_TEMPLATE` constant and `invalid_jsonpath_template()` helper to `errors.py`. Created new `resolution/jsonpath_validation.py` module with `check_nested_braces()` function that scans templates left-to-right tracking brace depth, returning a detail string if depth exceeds 1. Added the check to `handle_get()`, `handle_apply()`, and `handle_patch()` as an R8-style fail-fast before `resolve()`/kubectl. Updated `server.py`'s `jsonpath_template` descriptions on all three tools to proactively mention the correct syntax. Updated PRD.md §6's `k_get`/`k_apply`/`k_patch` rows.
-**Test:** `TestCheckNestedBraces` — 10 tests covering valid (simple field, sibling blocks, range loop, complex valid, empty, no braces, unmatched closing, only opening) and invalid (nested braces, deeper nesting) cases. `TestHandleGetWide::test_nested_brace_jsonpath_template_rejected` / `test_sibling_braces_jsonpath_template_allowed`. `TestHandleApplyOutputFormat::test_nested_brace_jsonpath_template_rejected` / `test_sibling_braces_jsonpath_template_allowed`. `TestHandlePatchOutputFormat::test_nested_brace_jsonpath_template_rejected` / `test_sibling_braces_jsonpath_template_allowed`.
-**Verified:** 226 tests pass (16 new tests added); nested-brace templates now fail fast with `{"error": "invalid_jsonpath_template", "jsonpath_template": "...", "detail": "Nested braces are not valid Kubernetes jsonpath syntax. For multiple fields per item use the bracket-list form... or a {range}...{end} loop."}` — `resolve()`/`run_kubectl_checked` never called.
-
----
-
-### 30. `k_logs` was completely broken — `kubectl` rejects the constructed command with `unknown shorthand flag: 'o' in -o`
-
-**File:** `src/k8s_mcp/tools/logs.py:61`
-**Severity:** High — every `k_logs` call failed, unconditionally. Reported live via a real MCP client session (a separately-deployed instance of this server), where two consecutive `k_logs` calls against different pods both failed identically. Since `k_logs` is one of the two most-used readonly tools, this was a total functional break of the tool, not an edge case.
-**Root cause:** `handle_logs()` called `run_kubectl_checked(context, args)` without overriding `output_format`, so it fell through to the function's default `output_format="json"` — producing `kubectl --context <ctx> -o json logs <pod> ...`. `kubectl logs` has no `-o`/`--output` flag at all (unlike `get`, which does) — `-o` is only valid there as a *shorthand* alias kubectl doesn't recognize on `logs`, hence the specific `unknown shorthand flag: 'o' in -o` error. This is the exact same class of bug Issue 8 fixed for `k_describe`/`k_exec` — `logs.py` was simply missed at the time and never caught since, because no test asserted what `output_format` value reached `run_kubectl_checked` (only the positional `args` were ever checked).
-**Fix:** `run_kubectl_checked(context, args, output_format=None)` — same fix shape as Issue 8, applied to the one tool module that fix pass missed.
-**Test:** Added `test_logs_output_format_none` to `tests/unit/test_tools_logs.py`, asserting `mock_run.call_args[1]["output_format"] is None` — same assertion style as `test_describe_output_format_none`/`test_exec_output_format_none`.
-**Verified:** confirmed directly in `logs.py`; the live report's cluster/pod/namespace details are not reproduced here — the bug is generic to any `k_logs` call, not specific to any cluster.
-
----
-
-### 31. `k_delete` was completely broken — kubectl rejects `-o json` with `unexpected -o output mode: json. We only support '-o name'`
-
-**File:** `src/k8s_mcp/tools/delete.py:56`
-**Severity:** High — every `k_delete` call fails unconditionally. Same class of bug as Issue 8 (`k_describe`/`k_exec`) and Issue 30 (`k_logs`), and apparently the one call site that pass missed: `delete.py` was not among the files touched by either fix.
-**Root cause:** `handle_delete()` called `run_kubectl_checked(context, args)` without overriding `output_format`, so it fell through to the function's default `output_format="json"`, producing `kubectl --context <ctx> -o json delete <resource> <name> -n <namespace>`. `kubectl delete` has no `-o json` support at all — it only accepts `-o name` — so the command was rejected before it ran.
-**Reported live via a real MCP client session:** a `k_delete` call against a live cluster (context/resource/namespace details not reproduced here — the bug is generic to any `k_delete` call, not specific to any cluster, same as Issue 30) returned `kubectl_failure` with the exact error above. Verified via a follow-up `k_get` that the target resource was untouched — kubectl rejects the invalid flag before performing the delete, so this was a hard failure, not a silent partial success.
-**Fix:** `run_kubectl_checked(context, args, output_format=None)` at `delete.py:56` — same fix shape as Issues 8/30. Without `-o`, `kubectl delete` prints a plain-text confirmation (`deployment.apps/my-deploy deleted`), which the existing non-JSON fallback (`{"message": result["stdout"]}`) already handles — no other code change needed.
-**Test:** Added `test_delete_output_format_none` to `tests/unit/test_tools_delete.py`, asserting `mock_run.call_args[1]["output_format"] is None` — same assertion style as `test_logs_output_format_none` (Issue 30) and `test_describe_output_format_none`/`test_exec_output_format_none` (Issue 8).
-**Verified:** red/green check — the new test fails with `KeyError: 'output_format'` against the pre-fix code (the old call passed no `output_format` kwarg at all) and passes with the fix; 228/228 tests pass.
-
----
-
-### 32. `discovery.py`'s `refresh()` built a redundant `-o json` + `-o wide` kubectl invocation — confirmed cosmetic (pflag last-value-wins), fixed
-
-**File:** `src/k8s_mcp/resolution/discovery.py:73`
-**Severity:** Low/cosmetic — live-confirmed harmless (see below). Same bug *class* as Issues 8/30/31 (a call site relying on `run_kubectl`'s default `output_format="json"` when the subcommand doesn't want JSON), found by code reading after fixing those three, not by a live failure report.
-**Root cause:** `refresh()` called `run_kubectl(context, ["api-resources", "-o", "wide"])` without overriding `output_format`, so the default `output_format="json"` produced `kubectl --context <ctx> -o json api-resources -o wide` — two `-o` flags in one invocation.
-**Confirmed live before fixing:** ran both invocations against a real cluster and diffed the outputs byte-for-byte — identical (256 lines each, both exit 0, `diff` exit 0). pflag's last-value-wins semantics apply: the trailing `-o wide` silently overrides the leading `-o json`, so the command has been working correctly all along, shaped by `-o wide` as intended. This also explains why Issues 27/28's live testing surfaced a *parsing* problem (bad regex) rather than a *command-rejected* problem. Cluster details not reproduced here — the behavior is generic to kubectl's flag parsing, not specific to any cluster.
-**Fix:** `run_kubectl(context, ["api-resources", "-o", "wide"], output_format=None)` — makes the single intended `-o wide` explicit, removes the redundant duplicate. Relying on undocumented flag-override behavior is fragile either way, so the fix stands regardless of the confirmation outcome.
-**Test:** Added `test_refresh_calls_run_kubectl_with_output_format_none` to `tests/unit/test_discovery.py`, asserting `run_kubectl` is called with `output_format=None` — closes the gap of zero assertions on what arguments/kwargs actually reach `run_kubectl` in that file (only the mocked return value's `stdout`/`error` were ever checked), the same class of blind spot that let Issues 25-28 (and this one) go unnoticed.
-**Verified:** 229/229 tests pass (228 + 1 new).
-
----
-
-### 33. `--kubeconfig` was silently ignored by every tool except `k_list_contexts` — resolved by removing the flag entirely, not by threading it through
-
-**File:** `src/k8s_mcp/kubectl/runner.py`, `src/k8s_mcp/cli.py`, `src/k8s_mcp/server.py`, `src/k8s_mcp/contexts/kubeconfig.py`, `src/k8s_mcp/tools/contexts.py`
-**Severity:** High as originally found. Discovered by reading previously-unaudited code (`cli.py`, `runner.py`), not a live report.
-**Root cause:** `run_kubectl()`/`run_kubectl_checked()` built `base_args = ["kubectl", "--context", context]` and never included `--kubeconfig`, regardless of what the server was started with. `server.py`'s `main()` resolved `--kubeconfig` into `kubeconfig_paths` and threaded it into exactly one place — `handle_list_contexts(...)`. Every other tool (`k_get`, `k_apply`, `k_patch`, `k_delete`, `k_describe`, `k_exec`, `k_logs`) and the discovery cache's own `kubectl api-resources` call resolved `context` against whatever kubeconfig `kubectl` found by default in the server process's own environment instead — a correctness/safety risk if a context name collided across files pointing at different clusters.
-**Resolution — decided against the originally-planned fix:** the plan drafted here was to add a `kubeconfig` parameter to `runner.py` and thread it through every tool handler plus `_dispatch()`. Instead, the decision was made to **remove `--kubeconfig` entirely** rather than fix the plumbing — see PRD.md §11's rejected-alternatives entry for the full reasoning (in short: the flag was only ever wired into one tool in practice, fixing that properly meant real surface-area cost across every handler, and the flag's only legitimate use case — multiple separate kubeconfig files — is already solved by kubectl's own `$KUBECONFIG` env var without any server involvement).
-**Changes:** removed `--kubeconfig` from `cli.py` (and the now-unused `resolve_kubeconfig_paths()`); removed `kubeconfig_paths` threading from `server.py`; `contexts/kubeconfig.py`'s `list_kubeconfig_contexts()` now takes no arguments and runs a single `kubectl config get-contexts -o name` relying on kubectl's own default resolution, matching how every other tool call in this project already behaves; `tools/contexts.py`'s `handle_list_contexts()` simplified to match. README/PRD/SPEC updated to match (PRD §11 rejected-alternatives entry, PRD §13's former "kubeconfig layout" open question resolved and removed, SPEC's startup-sequence and module-layout references updated).
-**Test:** removed the now-invalid `TestResolveKubeconfigPaths` class and `test_custom_kubeconfig` from `test_cli.py`; updated `test_tools_contexts.py`'s calls to match the no-argument signature; added `tests/unit/test_kubeconfig.py` (new file — `list_kubeconfig_contexts()` had zero direct tests before, every caller mocked it away) covering the happy path, confirming no `--kubeconfig` flag is ever passed to kubectl, empty output, non-zero exit, and `kubectl`-not-found.
-**Verified:** 229 tests pass (224 after removing 5 obsolete tests, +5 new in `test_kubeconfig.py`).
-
----
-
-### 34. `list_kubeconfig_contexts()` didn't merge contexts across multiple `--kubeconfig` paths — resolved by removing multi-path support entirely, same decision as Issue 33
-
-**File:** `src/k8s_mcp/contexts/kubeconfig.py`
-**Severity:** Medium as originally found — narrower blast radius than Issue 33 (only affected `k_list_contexts`'s own output), but contradicted the feature's own advertised purpose (README documented `--kubeconfig file1:file2` as valid multi-file usage; the implementation only ever returned the first file's contexts).
-**Root cause:** the function looped through `kubeconfig_paths` one at a time, invoking `kubectl --kubeconfig <single-path> config get-contexts -o name` separately per file, and returned as soon as the first path yielded any non-empty result — silently discarding every other path's contexts. Also architecturally backwards: kubectl's own convention for colon-separated `--kubeconfig` values is one merged invocation, not per-file looping with a winner-takes-all return.
-**Resolution:** moot by the same decision as Issue 33 — `--kubeconfig` (and therefore the multi-path case this issue was about) no longer exists. `list_kubeconfig_contexts()` now takes no path argument at all and runs a single invocation against kubectl's own default resolution. The dead first-line `args` assignment noted while investigating this was removed as part of the same rewrite.
-**Test:** `tests/unit/test_kubeconfig.py` (new file, added for Issue 33) covers the simplified function directly — this closes the "zero test coverage" gap originally flagged here, even though the multi-path merge logic itself no longer exists to test.
-**Verified:** 229/229 tests pass.
-
----
+Full detail for each of the following (root cause, fix, tests, verification, commit hash) is
+in `CHANGELOG.md`.
+
+| # | Title | File(s) |
+|---|---|---|
+| 41 | No test exercised `server.py`'s `_dispatch()` path | `tests/unit/test_server.py`, `server.py` |
+| 40 | `k_auth_can_i` crashed on every real call (two bugs, three commits) | `tools/auth_can_i.py`, `server.py` |
+| 39 | `k_get_helm_release` returned `values` fully unredacted | `access.py` |
+| 38 | Resolved `group`-qualification discarded before reaching kubectl | `tools/get.py`, `delete.py`, `describe.py`, `patch.py` |
+| 37 | `pyyaml` undeclared transitive dependency | `pyproject.toml` |
+| 36 | `apply.py` swallowed YAML parse errors via bare `except Exception` | `tools/apply.py` |
+| 35 | `prune()` had no `Secret`-specific redaction | `output/pruning.py` |
+| 1 | `bound_get_names({})` returns `[{}]` instead of `[]` | `output/bounding.py` |
+| 2 | `prune()` did not strip `last-applied-configuration` annotation | `output/pruning.py` |
+| 3 | `matches()` operator precedence bug | `resolution/models.py` |
+| 4 | `_fuzzy_suggest()` crashes on mixed `list[str \| ResourceMeta]` | `resolution/resolver.py` |
+| 5 | kubectl non-zero exit codes never detected | `kubectl/runner.py`, `errors.py` |
+| 6 | `k_apply` skipped R8 pre-execution validation | `tools/apply.py` |
+| 7 | `k_describe`/`k_exec` bypassed namespace allowlist and audit logging | `server.py` |
+| 8 | `k_describe`/`k_exec` called `subprocess` directly | `tools/describe.py`, `exec_.py` |
+| 10 | `k_logs` never applied its documented default `tail=100` | `tools/logs.py` |
+| 11 | `access.py`'s `_VERB_MAP` omitted `"describe"` | `access.py` |
+| 12 | `kubectl/errors.py`: duplicated `"unauthorized"` check | `kubectl/errors.py` |
+| 13 | Server failed to start — FastMCP API mismatch + `**kwargs` schema incompatibility | `server.py` |
+| 14 | `k_apply`'s validation errors assembled ad hoc, not via `errors.py` | `tools/apply.py`, `errors.py` |
+| 9 | Discovery cache parser mis-mapped columns | `resolution/discovery.py` |
+| 15 | `k_get` crashed with `'bytes' object has no attribute 'read'` | `resolution/core_table.py` |
+| 16 | `k_get` with `all_namespaces=true` rejected `pods` | `resolution/resolver.py`, `tools/get.py` |
+| 17 | `k_exec`'s `-c <container>` flag placed after `--` | `tools/exec_.py` |
+| 18 | `k_list_contexts` silently swallowed kubeconfig-read errors | `tools/contexts.py` |
+| 19 | `annotation_selector` always returned zero matches combined with `name` | `tools/get.py` |
+| 20 | `output=wide` was byte-identical to default output | `output/bounding.py`, `tools/get.py` |
+| 21 | `annotation_selector` + `output=wide` silently dropped the selector | `tools/get.py` |
+| 22 | Chronic PRD/SPEC doc drift (9 recurrences) — see Documentation Process below | `PRD.md`, `SPEC.md` |
+| 23 | `k_apply`/`k_patch`'s `output=json`/`yaml` non-functional | `tools/apply.py`, `patch.py` |
+| 24 | `events` required per-context discovery on every call | `data/core_resources.toml` |
+| 25 | Discovery cache never refreshed on cold/TTL-expired cache | `resolution/resolver.py` |
+| 26 | A passing test asserted Issue 25's broken behavior as correct | `tests/unit/test_resolver.py` |
+| 27 | `k_list_resources` returned an empty list against a live cluster | `resolution/discovery.py` |
+| 28 | `_parse_api_resources()` regex expected bracketed verbs/categories | `resolution/discovery.py` |
+| 29 | `jsonpath_template` gave a cryptic error for nested-brace syntax | `errors.py`, `resolution/jsonpath_validation.py` |
+| 30 | `k_logs` completely broken (`unknown shorthand flag: 'o'`) | `tools/logs.py` |
+| 31 | `k_delete` completely broken (kubectl rejects `-o json`) | `tools/delete.py` |
+| 32 | `discovery.py` built a redundant `-o json -o wide` invocation | `resolution/discovery.py` |
+| 33 | `--kubeconfig` silently ignored by every tool except `k_list_contexts` | `kubectl/runner.py`, `cli.py`, `server.py`, `contexts/kubeconfig.py` |
+| 34 | `list_kubeconfig_contexts()` didn't merge multi-path contexts | `contexts/kubeconfig.py` |
+
+**Issue 22 note:** unlike the others above, Issue 22 recurred 9 times before being addressed
+structurally rather than patched once — see `CHANGELOG.md`'s "Documentation Process" section
+for the full recurrence history and the resulting **Definition of Done** checklist (top of this
+file), which is the actual fix and remains a live process rule, not closed history.
