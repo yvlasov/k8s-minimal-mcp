@@ -49,54 +49,6 @@ implemented" label written before it was actually true). A Status line may not c
 
 ---
 
-## OPEN (not yet fixed)
-
-### 48. `k_apply`/`k_patch`/`k_delete`/`k_logs`'s tests never assert `-n <namespace>` reaches kubectl args — the same blind spot that let Issue 46 ship, latent in four more tools
-
-**File:** `tests/unit/test_tools_apply.py`, `test_tools_patch.py`, `test_tools_delete.py`,
-`test_tools_logs.py`
-**Severity:** Medium — **the source code for all four tools is confirmed correct today**
-(`apply.py:154-155`, `patch.py:73-74`, `delete.py:50-51`, `logs.py:56-57` each read `if
-namespace: args.extend(["-n", namespace])`, verified by direct read). This is a latent test gap,
-not a live bug — raised by the user asking the natural follow-up to Issue 46/47: is there
-comparable coverage for `namespace` across every namespaced tool (excluding genuinely
-cluster-wide tools like `k_list_resources`/`k_list_contexts`, which correctly have no
-`namespace` param at all — confirmed via direct read of both handlers)?
-**The gap:** every test in these four files that passes `namespace="default"` (which is nearly
-all of them — `apply`: 11 cases, `patch`: 12, `delete`: 10, `logs`: 12) asserts on output shape,
-`dry_run`, `output` format, `tail`/`limit_bytes`, etc., but **not one asserts that `-n`/
-`"default"` is actually present in the `args` list passed to `run_kubectl_checked`.**
-`test_tools_get_helm_release.py` has the same shape gap for a different reason — it checks
-`result["namespace"] == "default"` (the *echoed response field*, always trivially correct since
-it's just the input parameter reflected back) rather than the constructed kubectl args, and
-never checks args at all since that tool builds the kubectl invocation ad hoc rather than via a
-conditional `if namespace` block.
-**Why this matters despite the code being correct right now:** if any of these four
-`if namespace: args.extend(["-n", namespace])` lines were ever accidentally removed, reordered,
-or typo'd during a future refactor — exactly what happened to `k_exec` (Issue 46) — none of
-these tests would fail. The suite would stay green while the tool silently broke for every
-non-default namespace, undetected until (as with Issue 46) a live report against a real
-cluster surfaced it.
-**Tools already covered correctly, for contrast** (no action needed): `test_tools_get.py`
-(`assert "-n" in args`), `test_tools_describe.py` (`assert args == [..., "-n", "default"]`,
-full-list match), `test_tools_auth_can_i.py` (`assert "-n" in args`),
-`test_tools_get_secret_to_file.py` (`assert args == [..., "-n", "default"]`).
-**Proposed fix:** add one assertion to an existing namespace-carrying test in each of the four
-files — no new test class needed, just extend an existing case, matching the minimal-diff style
-already used elsewhere in this suite:
-  - `test_tools_apply.py` / `test_tools_patch.py` / `test_tools_delete.py`: assert
-    `"-n" in args and "default" in args` (or a full-list match where the existing test already
-    asserts one, per `test_tools_describe.py`'s stronger precedent).
-  - `test_tools_logs.py`: same, on the existing `namespace="default"` case.
-  - `test_tools_get_helm_release.py`: assert `-n`/the namespace value appear in the `-l
-    owner=helm,name=...` label-selector kubectl call itself (the actual kubectl invocation),
-    not just the echoed response field.
-  - A negative case (`namespace=None` → no `-n` in args) is also currently untested for at least
-    `apply`/`patch`/`delete`/`logs` and worth adding alongside, for the same reason.
-**Status:** OPEN, not yet fixed — coverage gap only, source code unaffected.
-
----
-
 ## FIXED
 
 Full detail for each of the following (root cause, fix, tests, verification, commit hash) is
@@ -151,6 +103,7 @@ in `CHANGELOG.md`.
 | 45 | `map_kubectl_error()`'s NotFound branch used `detail` instead of `raw_stderr` | `errors.py`, `kubectl/errors.py`, `test_errors.py`, `test_kubectl_errors.py` |
 | 46 | `k_exec` never passes `-n <namespace>` to kubectl — every call runs against the context's default namespace | `tools/exec_.py`, `test_tools_exec.py` |
 | 47 | `kubectl/runner.py` — the single seam that enforces R3's mandatory `--context` — had zero direct test coverage | `tests/unit/test_runner.py` |
+| 48 | `k_apply`/`k_patch`/`k_delete`/`k_logs`'s tests never asserted `-n <namespace>` reaches kubectl args — latent test gap | `tests/unit/test_tools_apply.py`, `test_tools_patch.py`, `test_tools_delete.py`, `test_tools_logs.py`, `test_tools_get_helm_release.py` |
 
 **Issue 22 note:** unlike the others above, Issue 22 recurred 9 times before being addressed
 structurally rather than patched once — see `CHANGELOG.md`'s "Documentation Process" section
