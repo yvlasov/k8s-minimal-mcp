@@ -51,51 +51,6 @@ implemented" label written before it was actually true). A Status line may not c
 
 ## OPEN (not yet fixed)
 
-### 47. `kubectl/runner.py` — the single seam that enforces R3's mandatory `--context` — has zero direct test coverage
-
-**File:** `src/k8s_mcp/kubectl/runner.py` (no corresponding `tests/unit/test_runner.py` exists);
-`tests/integration/` (mentioned in `SPEC.md` §2 as where a real-cluster check would live) does
-not exist as a directory at all.
-**Severity:** High — not a currently-observed bug (unlike Issues 42–46), but a structural gap on
-the single most safety-critical function in this codebase. Raised by the user asking, in
-effect, "if R3 requires `context` on every call, where's the test proving every kubectl
-invocation actually carries `--context`?" — the honest answer is nowhere.
-**Why this one function matters more than most:** `run_kubectl()` (`runner.py:48-51`)
-unconditionally builds `base_args = ["kubectl", "--context", context, ...]` — this is the
-*single* centralized place R3 ("no default, no session-scoped state... zero wrong-context
-mutations," also a named PRD §12 success criterion) is actually enforced. Every tool goes
-through it, so no individual tool can "forget" `--context` the way `k_exec` forgot `-n`
-(Issue 46) — the only way a call could go out without it is a tool bypassing the runner
-entirely and calling `subprocess` directly (Issue 8's bug class, already fixed everywhere
-except one flagged, low-risk exception in `contexts/kubeconfig.py`).
-**Confirmed gap:** `grep -rln "from src.k8s_mcp.kubectl.runner import\|kubectl.runner import"
-tests/` returns zero files — no test anywhere imports `runner.py` directly. Every one of the
-361 tests in the suite mocks `run_kubectl`/`run_kubectl_checked` away at the tool-module
-boundary (`@patch("src.k8s_mcp.tools.<x>.run_kubectl_checked")`), so the actual function body
-that constructs `base_args` has never once been executed by any test. A regression in that
-4-line block (wrong flag order, dropped `--context`, `context` value substituted incorrectly)
-would not be caught by this suite — every test would still pass green, the same blind spot
-Issue 41 found for `server.py`'s `_dispatch()`, one layer further down the call chain.
-**Proposed fix:** new `tests/unit/test_runner.py`, following the same "mock only the lowest
-seam" discipline this project settled on for Issue 40/41's verification methodology — mock
-`subprocess.run` (not `run_kubectl` itself), call the real `run_kubectl()`/
-`run_kubectl_checked()`, and assert on the resulting `command`/`base_args`:
-  - `--context <value>` is present and immediately follows `"kubectl"`, for at least two
-    distinct `context` values (guards against a hardcoded/mismatched value slipping in).
-  - `-o <output_format>` placement when set; omitted entirely when `output_format=None`
-    (the exact class of bug Issues 8/30/31/32 all were, at this exact seam).
-  - `stdin` is passed through to `subprocess.run(input=...)` unchanged.
-  - `timeout` is passed through to `subprocess.run(timeout=...)`.
-  - Error paths: `subprocess.TimeoutExpired` → `{"error": "kubectl timed out after ...", ...}`;
-    `FileNotFoundError` → `{"error": "kubectl binary not found in PATH"}`; non-zero `returncode`
-    with no exception → `run_kubectl_checked()` calls `map_kubectl_error()` (assert via a
-    `@patch` on `map_kubectl_error` at the `kubectl.errors` boundary, or assert the resulting
-    error shape directly).
-**Status:** OPEN, not yet fixed — this is a coverage gap, not a code defect; no behavior change
-needed, only the missing test file.
-
----
-
 ### 48. `k_apply`/`k_patch`/`k_delete`/`k_logs`'s tests never assert `-n <namespace>` reaches kubectl args — the same blind spot that let Issue 46 ship, latent in four more tools
 
 **File:** `tests/unit/test_tools_apply.py`, `test_tools_patch.py`, `test_tools_delete.py`,
@@ -195,6 +150,7 @@ in `CHANGELOG.md`.
 | 44 | `cilium_troubleshoot_connectivity`'s PromQL snippets had unquoted label-matcher values | `prompts.py`, `test_prompts.py` |
 | 45 | `map_kubectl_error()`'s NotFound branch used `detail` instead of `raw_stderr` | `errors.py`, `kubectl/errors.py`, `test_errors.py`, `test_kubectl_errors.py` |
 | 46 | `k_exec` never passes `-n <namespace>` to kubectl — every call runs against the context's default namespace | `tools/exec_.py`, `test_tools_exec.py` |
+| 47 | `kubectl/runner.py` — the single seam that enforces R3's mandatory `--context` — had zero direct test coverage | `tests/unit/test_runner.py` |
 
 **Issue 22 note:** unlike the others above, Issue 22 recurred 9 times before being addressed
 structurally rather than patched once — see `CHANGELOG.md`'s "Documentation Process" section
