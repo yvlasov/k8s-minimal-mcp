@@ -40,38 +40,18 @@ implemented" label written before it was actually true). A Status line may not c
 | FR11 | Built-in MCP prompts (ArgoCD/Cilium status) | Done — see Issue 43 (open correction) | PRD §15 FR11, SPEC §8 FR11 |
 | FR12 | `k_get_helm_release` | Done — see Issue 39 (resolved) | PRD §15 FR12, SPEC §8 FR12 |
 | FR13 | `k_auth_can_i` | Done — see Issue 40 (resolved) | PRD §15 FR13, SPEC §8 FR13 |
+| FR14 | `grep` — text-filtering for `k_logs`/`k_describe`/`k_get output=wide` | Proposed, plan ready | PRD §15 FR14, SPEC §8 FR14 |
+| FR15 | Typing/naming consistency cleanup (`auth_can_i.py`'s `discovery_cache`, `k_logs`'s tail default) | Proposed, plan ready | PRD §15 FR15 |
+| FR16 | Add `mypy` + `ruff` (lint/type-check tooling) | Proposed, plan ready | PRD §15 FR16 |
+| FR17 | Pin `fastmcp` to a tested version range (currently unbounded `>=0.2`, ties to Issue 13) | Proposed, plan ready | PRD §15 FR17 |
+| FR18 | Add CI (GitHub Actions) running the test suite on push/PR | Proposed, plan ready | PRD §15 FR18 |
+| FR19 | Split `errors.py` (306 lines) into a package by error domain — low priority | Proposed, plan ready | PRD §15 FR19 |
 
 ---
 
 ## OPEN (not yet fixed)
 
-### 42. `map_kubectl_error()` conflates "resource type unresolvable" with "named object legitimately doesn't exist" — both surface as `unknown_resource`
-
-**File:** `src/k8s_mcp/kubectl/errors.py:36-41` (`map_kubectl_error()`), `tests/unit/test_kubectl_errors.py:20-40` (asserts the conflation as correct)
-**Severity:** Medium — doesn't block reads (`raw_stderr` still carries kubectl's real message), but the `error` code itself is actively misleading. Per this project's own `errors.py` docstring, `unknown_resource` means "No GVK matched the requested resource type name" — a resolver-level, pre-kubectl failure. What's actually happening in the cases below is the opposite: the type resolved correctly, kubectl ran, and the API server returned its standard `NotFound` for a specific object that isn't there. The calling model has no way to tell "your resource string is wrong" from "that object just doesn't exist" apart, even though they call for completely different next actions.
-
-**Reproduced live, three times across three different tools (2026-09-25):**
-1. `k_get(context="sinsia-pl", resource="ciliumendpoints", name="kubelet", namespace="kube-system", output="yaml")` → `{"error":"unknown_resource","raw_stderr":"Error from server (NotFound): ciliumendpoints.cilium.io \"kubelet\" not found\n"}`. Note `ciliumendpoints.cilium.io` — the fully-qualified type — appears correctly in kubectl's own error text; only the named object is missing (`kubelet` is a host-level process, not a Pod, so no matching CiliumEndpoint was ever going to exist).
-2. `k_describe(context="sinsia-pl", resource="pods", name="kubelet", namespace="kube-system")` → `{"error":"unknown_resource","raw_stderr":"Error from server (NotFound): pods \"kubelet\" not found\n"}`. Same shape: `pods` resolved fine, `kubelet` legitimately isn't a Pod object.
-3. Reported the same day via a separate investigation (fork), not independently re-run here but identical in shape: `k_exec` against two different pods both confirmed `Running` by `k_get` moments earlier in the same session nonetheless failed with `{"error":"unknown_resource","raw_stderr":"Error from server (NotFound): pods \"...\" not found\n"}` — third call site, same symptom.
-
-**Root cause:** `map_kubectl_error()` pattern-matches the substring `"not found"`/`"notfound"` in kubectl's stderr and unconditionally returns `unknown_resource`, with no distinction between kubectl rejecting the resource *type* (which in practice never reaches this function — `resolve()` already rejects an unresolvable type before kubectl ever runs, per `resolver.py`) and kubectl successfully resolving the type but returning `NotFound` for the object itself, which is kubectl's normal response to `get`/`describe`/`exec` against something that isn't there. Confirmed this isn't an untested blind spot: `test_kubectl_errors.py:20-40` explicitly feeds this function `'pods "x" not found'` and `'Error from server (NotFound): pods "x" not found'` and asserts `unknown_resource` as the *correct* expected result — the conflation is currently by design, not oversight, the same way Issue 26 found a test asserting a different bug as intended behavior.
-
-**Proposed next step:** either (a) add a distinct error code (e.g. `object_not_found`) reserved for a resolved-type-but-missing-object NotFound, or (b) route this case through the existing `kubectl_failure` path instead, which already carries `command`/`stderr`/`exit_code` without claiming anything about resolver correctness. Either direction needs `map_kubectl_error()` to distinguish the two NotFound shapes — likely by checking whether the stderr's resource-type token matches what was actually requested, since kubectl's own message already contains the fully-qualified type in the case that shouldn't be `unknown_resource`. Needs new tests asserting the two cases produce different `error` values; the two existing tests asserting today's conflation would need to be corrected, not just supplemented, per the Issue 26 precedent.
-
 ---
-
-### 43. `cilium_troubleshoot_connectivity` prompt (FR11) is scoped to `(namespace, pod)`, doesn't fit the diffuse/fleet-wide symptoms it was built for, and never emits the mandatory `context=` parameter
-
-**File:** `src/k8s_mcp/prompts.py:38-59` (`cilium_troubleshoot_connectivity`), `src/k8s_mcp/server.py:213-215` (prompt registration)
-**Severity:** Medium — the prompt runs and returns text, but following its own literal instructions produces non-functional tool calls, and its parameter shape doesn't match the class of problem it was scoped to help with.
-**Reported live (2026-09-25):** invoking the shipped prompt via `/mcp__alfa-k8s__cilium_troubleshoot_connectivity kube-system kubelet` correctly bound `namespace="kube-system"`, `pod="kubelet"` and returned the expected Step 1/2/3 text — the argument binding itself works. But two real problems surfaced running it for real:
-1. **Missing `context=`.** None of the three generated calls (`k_get(resource="ciliumendpoints", name=..., namespace=..., output="yaml")`, `k_get(resource="ciliumnetworkpolicies", namespace=..., output="yaml")`, `k_describe(resource="pods", name=..., namespace=...)`) include `context=`, yet every `alfa-k8s` tool requires `context` as a mandatory parameter (`server.py`'s `get()`/`describe()` wrappers both declare `context: str` with no default). A calling model following the prompt's literal text verbatim would get a parameter-validation failure on every step, not real data — confirmed by having to add `context="sinsia-pl"` manually to reproduce the prompt's own instructions.
-2. **Wrong scoping for the actual use case.** The prompt assumes the caller already knows a specific offending pod. The class of problem this project's own comparison research (this session, 2026-09-25) actually needed Cilium troubleshooting for — the recurring `:10250`/kubelet-connectivity timeout investigated the prior day — is diffuse and fleet-wide (intermittent, spans many nodes/pods, not attributable to one pod up front). Forcing `(namespace, pod)` as required parameters means the prompt can't be invoked at all for exactly the symptom class it was meant to help diagnose; the user explicitly flagged this design mismatch live.
-
-**Requested correction (from the user, 2026-09-25):** change the signature to `(cluster, issue_description)` — `cluster` becomes the `context=` value threaded into every generated call (fixing problem 1 as a side effect), and `issue_description` is free text describing the symptom rather than a specific pod name. Since a static prompt template can't branch on free-text content, the returned guidance needs restructuring into something that covers both a single-pod complaint and a fleet-wide symptom (e.g. two paths: cluster-wide triage via `ciliumnodes`/`ciliumclusterwidenetworkpolicies`/`ciliumidentities` first, narrowing to a specific pod's `ciliumendpoints`/`ciliumnetworkpolicies` only if one is named in the description) rather than a single fixed 3-step recipe that assumes a pod is already known. Should also explicitly note that Cilium's own eBPF drop-reason counters (`cilium_drop_count_total` by `direction`/`reason`) are Prometheus-exposed, not reachable via any `k_*` tool here — relevant context for the fleet-wide path specifically, since that's exactly what the prior day's real investigation used and this tool can't reach.
-
-**Proposed next step:** rewrite `cilium_troubleshoot_connectivity(cluster: str, issue_description: str)` in `prompts.py` per the above, update the `server.py` prompt registration's parameter names to match, and rewrite `tests/unit/test_prompts.py::TestCiliumTroubleshootConnectivity` for the new signature and content (still asserting exact resource strings and exact field paths per the file's existing test convention, plus a new assertion that every generated call includes `context=`). Not yet implemented — filed as a correction, not started.
 
 ---
 
@@ -123,6 +103,8 @@ in `CHANGELOG.md`.
 | 32 | `discovery.py` built a redundant `-o json -o wide` invocation | `resolution/discovery.py` |
 | 33 | `--kubeconfig` silently ignored by every tool except `k_list_contexts` | `kubectl/runner.py`, `cli.py`, `server.py`, `contexts/kubeconfig.py` |
 | 34 | `list_kubeconfig_contexts()` didn't merge multi-path contexts | `contexts/kubeconfig.py` |
+| 42 | `map_kubectl_error()` conflated "object not found" with "resource type unresolvable" — both returned `unknown_resource` | `errors.py`, `kubectl/errors.py`, `test_kubectl_errors.py`, `test_errors.py` |
+| 43 | `cilium_troubleshoot_connectivity` prompt used `(namespace, pod)` signature, missing `context=` in all calls | `prompts.py`, `server.py`, `utils.py`, `test_prompts.py`, `test_utils.py` |
 
 **Issue 22 note:** unlike the others above, Issue 22 recurred 9 times before being addressed
 structurally rather than patched once — see `CHANGELOG.md`'s "Documentation Process" section
