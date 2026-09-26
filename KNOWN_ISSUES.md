@@ -51,22 +51,6 @@ implemented" label written before it was actually true). A Status line may not c
 
 ## OPEN (not yet fixed)
 
-### 44. `cilium_troubleshoot_connectivity`'s generated PromQL snippets have invalid label-matcher syntax
-
-**File:** `src/k8s_mcp/prompts.py` (Prometheus note in `cilium_troubleshoot_connectivity`)
-**Severity:** Low — content-only bug in generated guidance text, not executable server code.
-Found during review of Issue 43's fix.
-**Problem:** the two generated PromQL examples —
-`sum(rate(cilium_drop_count_total{direction=INGRESS,reason!="policy-denied"}[5m])) by (reason)`
-and `sum(rate(cilium_drop_count_total{direction=EGRESS}[5m])) by (reason)` — use unquoted label
-values (`direction=INGRESS`/`direction=EGRESS`). PromQL requires label matcher values to be
-quoted strings (`direction="INGRESS"`); as written, both queries are a syntax error and would
-fail if a model pasted them verbatim into Prometheus/Grafana.
-**Proposed fix:** quote both label values (`direction="INGRESS"`, `direction="EGRESS"`) in
-`prompts.py`'s literal string. Add a test asserting the quoted form (`test_prompts.py`'s
-existing convention of asserting exact literal substrings applies directly here — assert
-`'direction="INGRESS"'` is present, not the unquoted form).
-
 ---
 
 ## FIXED
