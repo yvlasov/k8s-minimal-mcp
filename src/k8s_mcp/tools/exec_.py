@@ -43,6 +43,8 @@ def handle_exec(
 
     # Build kubectl args
     args = ["exec", pod]
+    if namespace:
+        args.extend(["-n", namespace])
     if container:
         args.extend(["-c", container])
     args.append("--")

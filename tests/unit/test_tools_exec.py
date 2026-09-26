@@ -34,7 +34,7 @@ class TestHandleExec:
 
         assert result["success"] is True
         args = mock_run.call_args[0][1]
-        assert args == ["exec", "mypod", "-c", "sidecar", "--", "ls", "-l"]
+        assert args == ["exec", "mypod", "-n", "default", "-c", "sidecar", "--", "ls", "-l"]
 
     @patch("src.k8s_mcp.tools.exec_.resolve")
     @patch("src.k8s_mcp.tools.exec_.run_kubectl_checked")
@@ -46,7 +46,7 @@ class TestHandleExec:
 
         assert result["success"] is True
         args = mock_run.call_args[0][1]
-        assert args == ["exec", "mypod", "--", "ls", "-l"]
+        assert args == ["exec", "mypod", "-n", "default", "--", "ls", "-l"]
 
     @patch("src.k8s_mcp.tools.exec_.resolve")
     @patch("src.k8s_mcp.tools.exec_.run_kubectl_checked")
