@@ -67,28 +67,6 @@ fail if a model pasted them verbatim into Prometheus/Grafana.
 existing convention of asserting exact literal substrings applies directly here — assert
 `'direction="INGRESS"'` is present, not the unquoted form).
 
-### 45. `map_kubectl_error()`'s NotFound branch uses a different raw-stderr field name (`detail`) than its sibling branches (`raw_stderr`)
-
-**File:** `src/k8s_mcp/kubectl/errors.py`
-**Severity:** Low — no functional bug (both fields carry the same content, kubectl's raw
-stderr), but an internal consistency gap introduced by Issue 42's fix. Found during review of
-that fix.
-**Problem:** `map_kubectl_error()` has three branches returning kubectl's raw stderr text: the
-`"ambiguous"` branch and the `"forbidden"`/`"unauthorized"` branch both use an ad hoc dict with
-the field named `raw_stderr`; the `"not found"`/`"notfound"` branch (fixed under Issue 42) calls
-`object_not_found(context=context, detail=stderr)`, naming the same content `detail` instead.
-A caller trying to uniformly extract "the raw kubectl error text" across error types now has to
-special-case one error type's field name.
-**Proposed fix:** decide one name and apply it consistently — either rename `object_not_found`'s
-parameter usage to populate `raw_stderr` (matching the two ad hoc branches), or migrate
-`ambiguous_resource`/`access_denied`'s ad hoc dicts in this function to use their existing
-`errors.py` helpers (both already exist and both should be checked for what field name they use
-today) and settle on `detail` as the standard going forward. The latter is more consistent with
-this project's own "errors constructed only via `errors.py` helpers, never assembled ad hoc"
-guideline (SPEC §6) — worth fixing that guideline violation at the same time, not just the
-naming mismatch, since the `"ambiguous"`/`"forbidden"` branches being ad hoc dicts instead of
-`errors.py` helper calls predates this issue but sits in the exact same function.
-
 ---
 
 ## FIXED
@@ -141,6 +119,8 @@ in `CHANGELOG.md`.
 | 34 | `list_kubeconfig_contexts()` didn't merge multi-path contexts | `contexts/kubeconfig.py` |
 | 42 | `map_kubectl_error()` conflated "object not found" with "resource type unresolvable" — both returned `unknown_resource` | `errors.py`, `kubectl/errors.py`, `test_kubectl_errors.py`, `test_errors.py` |
 | 43 | `cilium_troubleshoot_connectivity` prompt used `(namespace, pod)` signature, missing `context=` in all calls | `prompts.py`, `server.py`, `utils.py`, `test_prompts.py`, `test_utils.py` |
+| 44 | `cilium_troubleshoot_connectivity`'s PromQL snippets had unquoted label-matcher values | `prompts.py`, `test_prompts.py` |
+| 45 | `map_kubectl_error()`'s NotFound branch used `detail` instead of `raw_stderr` | `errors.py`, `kubectl/errors.py`, `test_errors.py`, `test_kubectl_errors.py` |
 
 **Issue 22 note:** unlike the others above, Issue 22 recurred 9 times before being addressed
 structurally rather than patched once — see `CHANGELOG.md`'s "Documentation Process" section
