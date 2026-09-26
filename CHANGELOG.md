@@ -149,6 +149,38 @@ actual trigger. Bypasses pruning/bounding, returns the raw kubectl jsonpath stri
 
 ## Fixed Issues
 
+### 45. `map_kubectl_error()`'s NotFound branch used `detail` instead of `raw_stderr`
+
+**File:** `src/k8s_mcp/errors.py`, `src/k8s_mcp/kubectl/errors.py`, `tests/unit/test_errors.py`,
+`tests/unit/test_kubectl_errors.py`
+**Root cause:** `object_not_found()` named its raw-kubectl-stderr field `detail`, while the
+sibling `ambiguous_resource`/`access_denied` ad hoc dicts in the same `map_kubectl_error()`
+function used `raw_stderr` for the same conceptual content — found during review of Issue 42's
+fix.
+**Fix:** renamed `object_not_found()`'s keyword parameter from `detail` to `raw_stderr`
+(`errors.py:283`); `kubectl/errors.py`'s NotFound branch now calls
+`object_not_found(context=context, raw_stderr=stderr)`, matching the field name used by every
+other branch in the function.
+**Test:** `test_errors.py`/`test_kubectl_errors.py` updated to assert `raw_stderr` instead of
+`detail`.
+**Verified:** full suite — 361 passed, 9 skipped.
+**Not addressed by this fix (still true):** the `ambiguous_resource`/`access_denied` branches
+in `map_kubectl_error()` remain ad hoc dicts rather than calls to their existing `errors.py`
+helpers — a pre-existing SPEC §6 guideline violation, unrelated to the field-naming issue this
+fix closed.
+
+### 44. `cilium_troubleshoot_connectivity`'s PromQL snippets had unquoted label-matcher values
+
+**File:** `src/k8s_mcp/prompts.py`, `tests/unit/test_prompts.py`
+**Root cause:** the generated Prometheus guidance text used `direction=INGRESS`/
+`direction=EGRESS` — PromQL requires label matcher values to be quoted strings; unquoted, both
+queries are a syntax error.
+**Fix:** quoted both label values —
+`cilium_drop_count_total{direction="INGRESS",reason!="policy-denied"}` and
+`cilium_drop_count_total{direction="EGRESS"}`.
+**Test:** `test_prompts.py` asserts the quoted literal form is present.
+**Verified:** full suite — 361 passed, 9 skipped.
+
 ### 43. `cilium_troubleshoot_connectivity` prompt used `(namespace, pod)`, never emitted `context=`, and didn't fit fleet-wide symptoms
 
 **File:** `src/k8s_mcp/prompts.py`, `src/k8s_mcp/server.py`, `src/k8s_mcp/utils.py` (new),
@@ -171,11 +203,8 @@ new `test_utils.py` (12 cases) covering `extract_named_entity()`'s pattern match
 validation, and no-match cases.
 **Verified:** full suite passed after the change (see Issue 42's entry below for the shared
 verification run — both fixes landed close together).
-**Known follow-up, not yet filed as its own fix:** the generated PromQL snippets in the
-Prometheus note (`cilium_drop_count_total{direction=INGRESS,...}`) are missing quotes around
-the label value — `direction=INGRESS` is invalid PromQL syntax, needs to be
-`direction="INGRESS"`. Content-only (guidance text, not executable code), but a model following
-the prompt verbatim would get a Prometheus parse error. See `KNOWN_ISSUES.md` Issue 44.
+**Follow-up found during review, since fixed:** the generated PromQL snippets in the Prometheus
+note had unquoted label-matcher values — see Issue 44 above.
 
 ### 42. `map_kubectl_error()` conflated "resource type unresolvable" with "named object legitimately doesn't exist"
 
@@ -189,8 +218,8 @@ already rejects it earlier, with its own `unknown_resource`, before kubectl ever
 resolved-type-but-missing-object case — not two shapes needing a heuristic to distinguish, only
 one, previously mislabeled.
 **Fix:** added `ERROR_OBJECT_NOT_FOUND = "object_not_found"` + `object_not_found(context,
-resource=None, *, name=None, detail=None)` to `errors.py`. `kubectl/errors.py`'s `"not
-found"`/`"notfound"` branch now returns `object_not_found(context=context, detail=stderr)`
+resource=None, *, name=None, raw_stderr=None)` to `errors.py`. `kubectl/errors.py`'s `"not
+found"`/`"notfound"` branch now returns `object_not_found(context=context, raw_stderr=stderr)`
 instead of the old ad hoc `{"error": "unknown_resource", ...}` dict.
 **Test:** `test_kubectl_errors.py`'s two tests that previously asserted `unknown_resource` for
 this branch were corrected to assert `object_not_found` (not just supplemented — per the
@@ -198,11 +227,9 @@ Issue 26 precedent, a test asserting the old, wrong behavior as correct must not
 alongside the fix). New `test_errors.py::test_object_not_found_with_all_fields`/
 `test_object_not_found_minimal` cover the helper directly.
 **Verified:** full suite — 360 passed, 9 skipped.
-**Known follow-up, not yet filed as its own fix:** `object_not_found()`'s raw kubectl stderr
-text is carried in a field named `detail`, while the sibling `ambiguous_resource`/
-`access_denied` branches in the same `map_kubectl_error()` function still use an ad hoc dict
-with the field named `raw_stderr` for the same conceptual content. Same function, two field
-names for the same thing. See `KNOWN_ISSUES.md` Issue 45.
+**Follow-up found during review, since fixed:** `object_not_found()`'s raw kubectl stderr text
+was initially carried in a field named `detail`, inconsistent with the sibling branches'
+`raw_stderr` — see Issue 45 above.
 
 ### 41. No test exercised `server.py`'s `_dispatch()` path — every unit test called handlers directly
 
