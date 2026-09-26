@@ -24,6 +24,12 @@ implemented" label written before it was actually true). A Status line may not c
 5. **README.md's Available Tools table has a row for the new tool.**
 6. **The Status line's test count and commit hash are verified by actually running the suite
    and checking `git log`**, not estimated or carried over from a draft.
+7. **`CHANGELOG.md` has an entry** (root cause/fix/test, or the FR's shipped-status writeup).
+   Added 2026-09-26 after this recurred a third time in a row (Issues 42/43, then 44/45, then
+   46/47/48 — nine fix commits total, zero of them touching `CHANGELOG.md`) despite items 1–6
+   above all being satisfied each time. `KNOWN_ISSUES.md`'s FIXED table explicitly promises
+   "full detail... in `CHANGELOG.md`" for every row — a fix commit is not done until that
+   promise is true for its own row, not left for the next review pass to notice and backfill.
 
 | FR | Feature | Status | Spec |
 |---|---|---|---|

@@ -104,7 +104,8 @@ k8s-minimal-mcp/
 │   │   ├── test_utils.py          # extract_named_entity() pattern coverage
 │   │   ├── test_tools_get_helm_release.py  # FR12: decode-chain, revision-selection, redaction-gap coverage
 │   │   ├── test_tools_auth_can_i.py   # FR13: exit-code mapping, --as/--as-group ordering, --list parsing
-│   │   └── test_server.py             # _dispatch() smoke tests, every registered tool x every access level, using real handlers (only resolve/run_kubectl mocked)
+│   │   ├── test_server.py             # _dispatch() smoke tests, every registered tool x every access level, using real handlers (only resolve/run_kubectl mocked)
+│   │   └── test_runner.py             # kubectl/runner.py: --context/-o/stdin/timeout construction, real function body exercised, only subprocess.run mocked (Issue 47)
 │   ├── integration/
 │   │   └── test_tools_against_kind.py  # optional: real kubectl against a kind/minikube cluster
 │   └── fixtures/

@@ -149,6 +149,48 @@ actual trigger. Bypasses pruning/bounding, returns the raw kubectl jsonpath stri
 
 ## Fixed Issues
 
+### 48. `k_apply`/`k_patch`/`k_delete`/`k_logs`/`k_get_helm_release`'s tests never asserted `-n <namespace>` reaches kubectl args
+
+**File:** `tests/unit/test_tools_apply.py`, `test_tools_patch.py`, `test_tools_delete.py`,
+`test_tools_logs.py`, `test_tools_get_helm_release.py`
+**Root cause:** the source code for all five tools was already correct (each properly threads
+`namespace` into `-n` in its kubectl args), but every test that passed `namespace="default"`
+asserted only on output shape/format, never on the constructed `args` — the same blind spot
+that let Issue 46 ship, latent here too because nothing had exercised it yet.
+**Fix:** added `assert "-n" in args` / `assert "default" in args` (or the equivalent
+`mock_run.call_args[0][1]` form) to one existing namespace-carrying test in each file — minimal
+diff, no new test classes needed.
+**Verified:** full suite — 377 passed, 9 skipped.
+
+### 47. `kubectl/runner.py` had zero direct test coverage on the seam enforcing R3's mandatory `--context`
+
+**File:** `tests/unit/test_runner.py` (new, 16 tests)
+**Root cause:** every existing test mocked `run_kubectl`/`run_kubectl_checked` away at the
+tool-module boundary, so `run_kubectl()`'s actual body — where `base_args = ["kubectl",
+"--context", context, ...]` is constructed — had never been executed by any test in the suite.
+**Fix:** new `test_runner.py`, mocking only `subprocess.run` (the lowest seam) and calling the
+real `run_kubectl()`/`run_kubectl_checked()`. Covers: `--context` placement and value fidelity
+across distinct contexts; `-o <output_format>` present/omitted; `stdin`/`timeout` passthrough;
+success result shape; all three exception paths (`TimeoutExpired`, `FileNotFoundError`,
+`OSError`); `run_kubectl_checked()`'s zero/non-zero exit handling (asserting the real call into
+`map_kubectl_error()`) and context preservation through the checked wrapper.
+**Verified:** full suite — 377 passed, 9 skipped (16 new tests over the 361 baseline).
+
+### 46. `k_exec` never passed `-n <namespace>` to kubectl
+
+**File:** `src/k8s_mcp/tools/exec_.py`, `tests/unit/test_tools_exec.py`
+**Root cause:** `handle_exec()` accepted `namespace`, passed it to `validate()`, and echoed it
+into `exec_failed()`'s error dict, but never appended it to the constructed `args` — every call
+ran against kubectl's default namespace instead of the caller's, producing false
+`object_not_found` errors for real, running pods in any non-default namespace. Every sibling
+tool already appended `-n` correctly; `exec_.py` was the sole exception.
+**Fix:** added `if namespace: args.extend(["-n", namespace])` right after `args = ["exec",
+pod]`, matching every sibling tool's pattern.
+**Test:** `test_exec_with_container`/`test_exec_without_container` — previously asserted the
+full `args` list *without* `-n` present (asserting the bug as correct, same shape as Issue 26's
+precedent) — corrected to assert `-n`/`"default"` are present.
+**Verified:** full suite — 361 passed (pre-Issue 47/48), 9 skipped.
+
 ### 45. `map_kubectl_error()`'s NotFound branch used `detail` instead of `raw_stderr`
 
 **File:** `src/k8s_mcp/errors.py`, `src/k8s_mcp/kubectl/errors.py`, `tests/unit/test_errors.py`,
