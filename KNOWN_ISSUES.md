@@ -51,6 +51,160 @@ implemented" label written before it was actually true). A Status line may not c
 
 ## OPEN (not yet fixed)
 
+### 46. `k_exec` never passes `-n <namespace>` to kubectl — every call runs against the context's default namespace instead of the pod's actual one, producing false `NotFound` errors for real, running pods
+
+**File:** `src/k8s_mcp/tools/exec_.py:44-49`
+**Severity:** Critical — `k_exec` is unusable for any pod outside kubectl's default namespace (typically `"default"` unless the context sets otherwise), regardless of a correct, existing `pod`/`namespace` pair being passed in. Every other namespaced tool in this project correctly appends the flag — `apply.py:155`, `delete.py:51`, `get.py:100`, `describe.py:42`, `logs.py:57`, `patch.py:74`, `auth_can_i.py:34`, plus the ad hoc `-n` calls in `get_helm_release.py:103`/`get_secret_to_file.py:99` — confirmed by grep across all of `tools/*.py`; `exec_.py` is the sole file that never does.
+
+**Root cause, confirmed by direct code read, not hypothesis:** `handle_exec()` builds:
+```python
+args = ["exec", pod]
+if container:
+    args.extend(["-c", container])
+args.append("--")
+args.extend(command)
+```
+`namespace` is accepted as a parameter, passed into `validate()` (line 39) and later echoed into the `exec_failed()` error dict (line 60) purely for reporting — but it is **never threaded into `args`**. The resulting command is `kubectl --context <ctx> exec <pod> -- <command>` with no `-n`/`--namespace` flag at all, so kubectl resolves `<pod>` against whatever namespace the context defaults to, not the namespace the caller specified or the one the pod actually runs in.
+
+**Reproduced live (2026-09-26), raw tool calls and responses.** Target pod confirmed to exist immediately beforehand:
+```
+k_get(context="sinsia-pl", resource="pods", name="airflow-de-sinsia-pl-scheduler-5bc5856c56-78lb8", namespace="airflow-de", output="jsonpath", jsonpath_template="{.metadata.name}{\"\n\"}{.metadata.namespace}{\"\n\"}{.status.phase}{\"\n\"}containers:{.spec.containers[*].name}{\"\n\"}statuses:{range .status.containerStatuses[*]}{.name}{\"=\"}{.ready}{\" \"}{end}")
+```
+→
+```json
+{"success":true,"data":{"data":"airflow-de-sinsia-pl-scheduler-5bc5856c56-78lb8\nairflow-de\nRunning\ncontainers:scheduler git-sync scheduler-log-groomer submodule-refresher\nstatuses:git-sync=true scheduler=true scheduler-log-groomer=true submodule-refresher=true "}}
+```
+
+Three separate `k_exec` calls against that exact same `pod`/`namespace`/`context`, all failing identically:
+```
+k_exec(context="sinsia-pl", pod="airflow-de-sinsia-pl-scheduler-5bc5856c56-78lb8", namespace="airflow-de", command=["sh","-c","<ping/curl script>"])
+k_exec(context="sinsia-pl", pod="airflow-de-sinsia-pl-scheduler-5bc5856c56-78lb8", namespace="airflow-de", command=["echo","hello"])
+k_exec(context="sinsia-pl", pod="airflow-de-sinsia-pl-scheduler-5bc5856c56-78lb8", namespace="airflow-de", container="scheduler", command=["echo","hello"])
+```
+→ all three:
+```json
+{"context":"sinsia-pl","tool":"k_exec","success":false,"error":"object_not_found","raw_stderr":"Error from server (NotFound): pods \"airflow-de-sinsia-pl-scheduler-5bc5856c56-78lb8\" not found\n"}
+```
+(`error: "object_not_found"` confirms Issues 42/45's NotFound-vs-unresolvable-type fix is correctly applied here — this is a distinct, still-open bug specific to `k_exec`, not a regression of those.)
+
+Matches an earlier same-shape report from a separate investigation the same day, against two different pods in two different namespaces (`airflow-de-sinsia-pl-scheduler-...` and a `network-check` pod in `kube-system`, both confirmed `Running` via `k_get` immediately before the failing `k_exec` call) — ruling out anything pod- or namespace-specific except in the sense that any namespace other than kubectl's true context default reproduces it.
+
+**Proposed fix:** add, after line 45:
+```python
+if namespace:
+    args.extend(["-n", namespace])
+```
+matching every sibling tool's placement. Needs a new test asserting `-n <namespace>` appears in the constructed `args` when `namespace` is passed — check `tests/unit/test_tools_exec.py` first to confirm no existing case actually asserts on full `args` content with a namespace set, since that's the coverage gap that let this ship undetected (same class as Issue 17's `-c` placement gap).
+
+**Status:** OPEN, not yet fixed. Root cause fully confirmed by direct code read and cross-referenced against every sibling tool's correct implementation.
+
+**Verified (2026-09-26), credibility check without live cluster access:** confirmed by direct
+read of `exec_.py` — `namespace` is accepted, passed into `validate()`, and echoed into
+`exec_failed()`'s error dict, but genuinely never appended to `args`; `grep -n '"-n"'
+src/k8s_mcp/tools/*.py` confirms every sibling tool (`get.py`, `apply.py`, `delete.py`,
+`describe.py`, `logs.py`, `patch.py`, `auth_can_i.py`, plus the ad hoc `-n` calls in
+`get_helm_release.py`/`get_secret_to_file.py`) does append it — `exec_.py` is the sole
+exception. Confirmed the predicted test gap is real and worse than "missing coverage":
+`tests/unit/test_tools_exec.py`'s `test_exec_with_container`/`test_exec_without_container`
+both call `handle_exec(..., namespace="default", ...)` and then assert the full `args` list
+*without* `-n`/`"default"` present anywhere — i.e. the existing tests actively assert the bug
+as correct, the same shape as Issue 26's precedent, not merely an absent assertion. Proposed
+fix (`if namespace: args.extend(["-n", namespace])` after line 45) is correct and consistent
+with every sibling tool's exact placement. Live-cluster reproduction was not independently
+re-run in this pass — the report's own live evidence plus the code-level confirmation above are
+conclusive without it.
+
+---
+
+### 47. `kubectl/runner.py` — the single seam that enforces R3's mandatory `--context` — has zero direct test coverage
+
+**File:** `src/k8s_mcp/kubectl/runner.py` (no corresponding `tests/unit/test_runner.py` exists);
+`tests/integration/` (mentioned in `SPEC.md` §2 as where a real-cluster check would live) does
+not exist as a directory at all.
+**Severity:** High — not a currently-observed bug (unlike Issues 42–46), but a structural gap on
+the single most safety-critical function in this codebase. Raised by the user asking, in
+effect, "if R3 requires `context` on every call, where's the test proving every kubectl
+invocation actually carries `--context`?" — the honest answer is nowhere.
+**Why this one function matters more than most:** `run_kubectl()` (`runner.py:48-51`)
+unconditionally builds `base_args = ["kubectl", "--context", context, ...]` — this is the
+*single* centralized place R3 ("no default, no session-scoped state... zero wrong-context
+mutations," also a named PRD §12 success criterion) is actually enforced. Every tool goes
+through it, so no individual tool can "forget" `--context` the way `k_exec` forgot `-n`
+(Issue 46) — the only way a call could go out without it is a tool bypassing the runner
+entirely and calling `subprocess` directly (Issue 8's bug class, already fixed everywhere
+except one flagged, low-risk exception in `contexts/kubeconfig.py`).
+**Confirmed gap:** `grep -rln "from src.k8s_mcp.kubectl.runner import\|kubectl.runner import"
+tests/` returns zero files — no test anywhere imports `runner.py` directly. Every one of the
+361 tests in the suite mocks `run_kubectl`/`run_kubectl_checked` away at the tool-module
+boundary (`@patch("src.k8s_mcp.tools.<x>.run_kubectl_checked")`), so the actual function body
+that constructs `base_args` has never once been executed by any test. A regression in that
+4-line block (wrong flag order, dropped `--context`, `context` value substituted incorrectly)
+would not be caught by this suite — every test would still pass green, the same blind spot
+Issue 41 found for `server.py`'s `_dispatch()`, one layer further down the call chain.
+**Proposed fix:** new `tests/unit/test_runner.py`, following the same "mock only the lowest
+seam" discipline this project settled on for Issue 40/41's verification methodology — mock
+`subprocess.run` (not `run_kubectl` itself), call the real `run_kubectl()`/
+`run_kubectl_checked()`, and assert on the resulting `command`/`base_args`:
+  - `--context <value>` is present and immediately follows `"kubectl"`, for at least two
+    distinct `context` values (guards against a hardcoded/mismatched value slipping in).
+  - `-o <output_format>` placement when set; omitted entirely when `output_format=None`
+    (the exact class of bug Issues 8/30/31/32 all were, at this exact seam).
+  - `stdin` is passed through to `subprocess.run(input=...)` unchanged.
+  - `timeout` is passed through to `subprocess.run(timeout=...)`.
+  - Error paths: `subprocess.TimeoutExpired` → `{"error": "kubectl timed out after ...", ...}`;
+    `FileNotFoundError` → `{"error": "kubectl binary not found in PATH"}`; non-zero `returncode`
+    with no exception → `run_kubectl_checked()` calls `map_kubectl_error()` (assert via a
+    `@patch` on `map_kubectl_error` at the `kubectl.errors` boundary, or assert the resulting
+    error shape directly).
+**Status:** OPEN, not yet fixed — this is a coverage gap, not a code defect; no behavior change
+needed, only the missing test file.
+
+---
+
+### 48. `k_apply`/`k_patch`/`k_delete`/`k_logs`'s tests never assert `-n <namespace>` reaches kubectl args — the same blind spot that let Issue 46 ship, latent in four more tools
+
+**File:** `tests/unit/test_tools_apply.py`, `test_tools_patch.py`, `test_tools_delete.py`,
+`test_tools_logs.py`
+**Severity:** Medium — **the source code for all four tools is confirmed correct today**
+(`apply.py:154-155`, `patch.py:73-74`, `delete.py:50-51`, `logs.py:56-57` each read `if
+namespace: args.extend(["-n", namespace])`, verified by direct read). This is a latent test gap,
+not a live bug — raised by the user asking the natural follow-up to Issue 46/47: is there
+comparable coverage for `namespace` across every namespaced tool (excluding genuinely
+cluster-wide tools like `k_list_resources`/`k_list_contexts`, which correctly have no
+`namespace` param at all — confirmed via direct read of both handlers)?
+**The gap:** every test in these four files that passes `namespace="default"` (which is nearly
+all of them — `apply`: 11 cases, `patch`: 12, `delete`: 10, `logs`: 12) asserts on output shape,
+`dry_run`, `output` format, `tail`/`limit_bytes`, etc., but **not one asserts that `-n`/
+`"default"` is actually present in the `args` list passed to `run_kubectl_checked`.**
+`test_tools_get_helm_release.py` has the same shape gap for a different reason — it checks
+`result["namespace"] == "default"` (the *echoed response field*, always trivially correct since
+it's just the input parameter reflected back) rather than the constructed kubectl args, and
+never checks args at all since that tool builds the kubectl invocation ad hoc rather than via a
+conditional `if namespace` block.
+**Why this matters despite the code being correct right now:** if any of these four
+`if namespace: args.extend(["-n", namespace])` lines were ever accidentally removed, reordered,
+or typo'd during a future refactor — exactly what happened to `k_exec` (Issue 46) — none of
+these tests would fail. The suite would stay green while the tool silently broke for every
+non-default namespace, undetected until (as with Issue 46) a live report against a real
+cluster surfaced it.
+**Tools already covered correctly, for contrast** (no action needed): `test_tools_get.py`
+(`assert "-n" in args`), `test_tools_describe.py` (`assert args == [..., "-n", "default"]`,
+full-list match), `test_tools_auth_can_i.py` (`assert "-n" in args`),
+`test_tools_get_secret_to_file.py` (`assert args == [..., "-n", "default"]`).
+**Proposed fix:** add one assertion to an existing namespace-carrying test in each of the four
+files — no new test class needed, just extend an existing case, matching the minimal-diff style
+already used elsewhere in this suite:
+  - `test_tools_apply.py` / `test_tools_patch.py` / `test_tools_delete.py`: assert
+    `"-n" in args and "default" in args` (or a full-list match where the existing test already
+    asserts one, per `test_tools_describe.py`'s stronger precedent).
+  - `test_tools_logs.py`: same, on the existing `namespace="default"` case.
+  - `test_tools_get_helm_release.py`: assert `-n`/the namespace value appear in the `-l
+    owner=helm,name=...` label-selector kubectl call itself (the actual kubectl invocation),
+    not just the echoed response field.
+  - A negative case (`namespace=None` → no `-n` in args) is also currently untested for at least
+    `apply`/`patch`/`delete`/`logs` and worth adding alongside, for the same reason.
+**Status:** OPEN, not yet fixed — coverage gap only, source code unaffected.
+
 ---
 
 ## FIXED
