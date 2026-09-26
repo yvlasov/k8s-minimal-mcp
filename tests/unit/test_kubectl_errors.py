@@ -26,9 +26,9 @@ class TestMapKubectlError:
             stderr='pods "x" not found',
             returncode=1,
         )
-        assert result["error"] == "unknown_resource"
+        assert result["error"] == "object_not_found"
         assert result["context"] == "test"
-        assert 'pods "x" not found' in result["raw_stderr"]
+        assert 'pods "x" not found' in result["detail"]
 
     def test_not_found_uppercase(self):
         result = map_kubectl_error(
@@ -37,7 +37,7 @@ class TestMapKubectlError:
             stderr='Error from server (NotFound): pods "x" not found',
             returncode=1,
         )
-        assert result["error"] == "unknown_resource"
+        assert result["error"] == "object_not_found"
 
     def test_forbidden(self):
         result = map_kubectl_error(

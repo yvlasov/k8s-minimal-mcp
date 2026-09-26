@@ -13,6 +13,7 @@ from src.k8s_mcp.errors import (
     access_denied,
     kubectl_failure,
     exec_failed,
+    object_not_found,
     ERROR_AMBIGUOUS_RESOURCE,
     ERROR_UNKNOWN_RESOURCE,
     ERROR_VERB_UNSUPPORTED,
@@ -21,6 +22,7 @@ from src.k8s_mcp.errors import (
     ERROR_ACCESS_DENIED,
     ERROR_KUBECTL_FAILURE,
     ERROR_EXEC_FAILED,
+    ERROR_OBJECT_NOT_FOUND,
 )
 
 
@@ -81,6 +83,29 @@ class TestErrorShapes:
         assert err["command"] == ["ls", "/nonexistent"]
         assert err["stderr"] == "no such file"
         assert err["exit_code"] == 1
+
+    def test_object_not_found_with_all_fields(self):
+        err = object_not_found("dev", "pods", name="kubelet", detail='Error from server (NotFound): pods "kubelet" not found')
+        assert err["error"] == ERROR_OBJECT_NOT_FOUND
+        assert err["context"] == "dev"
+        assert err["resource"] == "pods"
+        assert err["name"] == "kubelet"
+        assert err["detail"] == 'Error from server (NotFound): pods "kubelet" not found'
+
+    def test_object_not_found_minimal(self):
+        err = object_not_found("dev")
+        assert err["error"] == ERROR_OBJECT_NOT_FOUND
+        assert err["context"] == "dev"
+        assert "resource" not in err
+        assert "name" not in err
+        assert "detail" not in err
+
+    def test_object_not_found_with_resource_only(self):
+        err = object_not_found("dev", "secrets")
+        assert err["error"] == ERROR_OBJECT_NOT_FOUND
+        assert err["resource"] == "secrets"
+        assert "name" not in err
+        assert "detail" not in err
 
     def test_all_error_codes_defined(self):
         """Ensure all error code constants are non-empty strings."""

@@ -34,6 +34,7 @@ ERROR_FILE_EXISTS = "file_exists"
 ERROR_FILE_WRITE_FAILED = "file_write_failed"
 
 ERROR_FILE_READ_FAILED = "file_read_failed"
+ERROR_OBJECT_NOT_FOUND = "object_not_found"
 ERROR_HELM_RELEASE_NOT_FOUND = "helm_release_not_found"
 ERROR_HELM_RELEASE_DECODE_FAILED = "helm_release_decode_failed"
 
@@ -269,6 +270,24 @@ def file_read_failed(
     """k_apply: reading the manifest from src_file failed (missing file, permissions, undecodable content)."""
     out = _base(context, ERROR_FILE_READ_FAILED)
     out["path"] = path
+    if detail:
+        out["detail"] = detail
+    return out
+
+
+def object_not_found(
+    context: str,
+    resource: str | None = None,
+    *,
+    name: str | None = None,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    """kubectl returned NotFound for a resolved resource type — the named object doesn't exist."""
+    out = _base(context, ERROR_OBJECT_NOT_FOUND)
+    if resource is not None:
+        out["resource"] = resource
+    if name:
+        out["name"] = name
     if detail:
         out["detail"] = detail
     return out

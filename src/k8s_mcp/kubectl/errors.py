@@ -6,7 +6,7 @@ Called by tools after a non-zero returncode from runner.py.
 
 from __future__ import annotations
 
-from ..errors import kubectl_failure
+from ..errors import kubectl_failure, object_not_found
 
 
 def map_kubectl_error(
@@ -34,11 +34,10 @@ def map_kubectl_error(
         }
 
     if "notfound" in stderr_lower or "not found" in stderr_lower:
-        return {
-            "error": "unknown_resource",
-            "context": context,
-            "raw_stderr": stderr,
-        }
+        return object_not_found(
+            context=context,
+            detail=stderr,
+        )
 
     if "forbidden" in stderr_lower or "unauthorized" in stderr_lower:
         return {
