@@ -100,6 +100,56 @@ class TestHandleLogs:
 
     @patch("src.k8s_mcp.tools.logs.resolve")
     @patch("src.k8s_mcp.tools.logs.run_kubectl_checked")
+    def test_logs_default_limit_bytes_8192(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "log line 1"}
+
+        handle_logs("test-context", "mypod", namespace="default")
+
+        args = mock_run.call_args[0][1]
+        limit_idx = args.index("--limit-bytes")
+        assert args[limit_idx + 1] == "8192"
+
+    @patch("src.k8s_mcp.tools.logs.resolve")
+    @patch("src.k8s_mcp.tools.logs.run_kubectl_checked")
+    def test_logs_explicit_limit_bytes(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "log line 1"}
+
+        handle_logs("test-context", "mypod", namespace="default", limit_bytes=1024)
+
+        args = mock_run.call_args[0][1]
+        limit_idx = args.index("--limit-bytes")
+        assert args[limit_idx + 1] == "1024"
+
+    @patch("src.k8s_mcp.tools.logs.resolve")
+    @patch("src.k8s_mcp.tools.logs.run_kubectl_checked")
+    def test_logs_byte_truncation_message(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "x" * 1024}
+
+        result = handle_logs("test-context", "mypod", namespace="default", limit_bytes=1024)
+
+        assert result["data"]["_bound"]["truncated"] is True
+        assert "message" in result["data"]["_bound"]
+        assert "1024" in result["data"]["_bound"]["message"]
+
+    @patch("src.k8s_mcp.tools.logs.resolve")
+    @patch("src.k8s_mcp.tools.logs.run_kubectl_checked")
+    def test_logs_since_time(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "recent log"}
+
+        result = handle_logs("test-context", "mypod", namespace="default",
+                              since_time="2026-09-26T00:00:00Z")
+
+        assert result["success"] is True
+        args = mock_run.call_args[0][1]
+        since_time_idx = args.index("--since-time")
+        assert args[since_time_idx + 1] == "2026-09-26T00:00:00Z"
+
+    @patch("src.k8s_mcp.tools.logs.resolve")
+    @patch("src.k8s_mcp.tools.logs.run_kubectl_checked")
     def test_logs_bound_metadata_passes_through(self, mock_run, mock_resolve, pod_meta):
         mock_resolve.return_value = pod_meta
         mock_run.return_value = {"stdout": "\n".join([f"line {i}" for i in range(150)])}

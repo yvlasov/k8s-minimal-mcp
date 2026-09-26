@@ -90,7 +90,7 @@ All tools take `context` (kubeconfig context name) as a required input parameter
 |---|---|---|---|---|
 | `k_get` | `resource` | `name`, `namespace`, `all_namespaces`, `label_selector`, `field_selector`, `output`, `jsonpath_template`, `annotation_selector` | `output=name` (names only) by default; `json`/`yaml` on request. `output=wide` delegates to kubectl's own `-o wide` and returns its plain-text table verbatim as `output`. `jsonpath_template` triggers jsonpath mode regardless of `output` (bare `output="jsonpath"` with no template, or nested braces in the template, are fail-fast errors). `annotation_selector` filters results client-side by `metadata.annotations`, reports `{"matched": N, "total": M}` as `_filtered`; incompatible with `jsonpath_template`/`output=wide`. All non-jsonpath/non-wide JSON field-pruned per R9. | readonly |
 | `k_describe` | `resource`, `name` | `namespace` | None — delegates verbatim to `kubectl describe`. | readonly |
-| `k_logs` | `pod` | `namespace`, `container`, `tail`, `previous`, `since` | `tail=100`. Response states the bound and whether truncation occurred. | readonly |
+| `k_logs` | `pod` | `namespace`, `container`, `tail`, `previous`, `since`, `since_time`, `limit_bytes` | `tail=100`, `limit_bytes=8192`. `since`/`since_time` are mutually exclusive per kubectl's own convention (relative duration vs. absolute RFC3339 timestamp). Response states both bounds and whether truncation occurred by either; a byte-limit truncation includes a `message` pointing at `limit_bytes` specifically, since increasing `tail` alone won't help once the byte cap is what's binding. | readonly |
 | `k_apply` | `manifest` or `src_file` (exactly one) | `namespace`, `dry_run`, `output`, `jsonpath_template` | N/A — response states `dry_run` status. `src_file` is an absolute path to a server-filesystem manifest file. `jsonpath_template` returns the raw jsonpath string as `data`. `output="yaml"` returns `{"_yaml": <string>}`; `output="wide"` is rejected. | readwrite |
 | `k_patch` | `resource`, `name`, `patch` | `namespace`, `type` (strategic/merge/json), `dry_run`, `output`, `jsonpath_template` | N/A — same as `k_apply` above. | readwrite |
 | `k_delete` | `resource` | `name`, `namespace`, `label_selector`, `dry_run` | N/A — same | readwrite |
@@ -315,3 +315,156 @@ Not part of v1 scope. Tracked here as candidates, not commitments — promote to
 **Decision already resolved, not re-litigated:** an unprivileged caller cannot use `--as` to probe beyond their own reach — kubectl itself requires the `impersonate` verb before honoring `--as`/`--as-group`, enforced server-side. No new privilege-escalation surface.
 
 Shipping this tool took two more rounds beyond the core logic to make it actually callable — see `KNOWN_ISSUES.md` Issue 40 / `CHANGELOG.md` for the full history.
+
+### FR14. `grep` — server-side text-filtering for unstructured-text tool output
+
+**Motivation.** `k_logs`, `k_describe`, and `k_get`'s `output=wide` all return plain kubectl
+text output verbatim, with no server-side narrowing mechanism — unlike JSON-shaped output,
+which already has `annotation_selector` (FR2) and `jsonpath_template` (FR1). A caller wanting
+only the lines matching a pattern (an error string in a log stream, one field in a `describe`
+block, rows matching a name pattern in a `wide` table) must fetch the whole blob and filter in
+the model's own context — exactly the R4/R10 context-economy problem this project exists to
+avoid, just for the one response shape (raw text) those two mechanisms don't cover.
+
+**Proposed shape:**
+- New optional param `grep: str | None = None` (interpreted as a regex, `re.search` per line)
+  and `grep_ignore_case: bool = False`, added to `k_logs`, `k_describe`, and `k_get` (relevant
+  there only when `output="wide"` — other `k_get` output modes already have `jsonpath_template`/
+  `annotation_selector`).
+- Filter kubectl's returned text to matching lines, join back with newlines. Report
+  `_filtered: {"matched": N, "total": M}` (line counts) via R4 — same shape convention as
+  FR2's `_filtered`.
+- Malformed regex → new fail-fast error `invalid_grep_pattern` (mirrors `invalid_selector`/
+  `invalid_jsonpath_template`), before the kubectl call.
+- **Scope boundary:** not extended to `k_exec`'s stdout/stderr in this FR — interactive command
+  output, typically short-lived; out of scope unless requested separately.
+- **Ordering constraint, binding on the implementation:** `grep` filters only the text field
+  (`logs`/`output`), applied *before* `_bound`/`_filtered` metadata is assembled, never the
+  other way around. `k_logs`'s truncation hint (added when `limit_bytes` or `tail` bind — see
+  its Tool Specification row above) lives in `_bound.message`, a structured field alongside the
+  text, not concatenated into the log string itself — this is deliberate so a `grep` pass over
+  the text can never filter the hint message out along with non-matching log lines. Any future
+  hint/warning text added to a tool that also gets a `grep` param must follow the same rule:
+  metadata field, never inline in the greppable content.
+
+**Interaction with existing rules:**
+- **R11** — same acknowledgment FR2 already made: this is the server doing its own query logic
+  rather than delegating to kubectl, since kubectl has no output-filtering flag for `logs`/
+  `describe`. Consistent with existing practice (FR2), not a new category.
+- **R4** — `_filtered` reporting, same convention as FR2.
+- **R9/R10** — not applicable; no structured JSON involved for any of the three target shapes.
+
+**Open question, not yet resolved:** for `k_logs` specifically, kubectl's own `--tail` and
+`--limit-bytes` flags (the latter now implemented, default 8192 — see the Tool Specification
+table above) already bound what reaches this tool before `grep` ever sees it — `grep` would
+only filter *within* that already-bounded window, not the full log history. Worth an explicit
+caveat in the tool description (increase `tail`/`limit_bytes` or fetch broader first if the
+matching lines might be outside the current window) rather than a silent surprise. Plain-substring
+vs. regex, and the default case-sensitivity, are also open — leaning regex-with-`grep_ignore_case`
+(mirrors `grep -i`,
+which is the tool's namesake and the training-data prior most callers will already have) but
+not locked in.
+
+**Status:** Proposed, not accepted into v1 scope. Implementation plan now exists at SPEC.md §8
+FR14 (added once the plan was worked out in full — see `KNOWN_ISSUES.md`'s FEATURE REQUESTS
+table), ready to build once accepted.
+
+### FR15. Typing/naming consistency cleanup
+
+**Motivation.** Two small, previously-flagged-but-never-applied deviations from this project's
+own stated conventions (Rule 9's "strong typing, avoid loose types" and "single source of
+truth for defaults"), found while reviewing the codebase for a code-quality pass.
+
+**Proposed shape:**
+- `src/k8s_mcp/tools/auth_can_i.py:84` — `discovery_cache: object | None = None` should be
+  `discovery_cache: DiscoveryCache | None = None`, matching every other handler's signature
+  (`get_helm_release.py:87`'s precedent, among others). This was flagged as a "minor unfixed
+  typing deviation" during FR13's original review and never applied — `object` type-checks
+  nothing; a caller could pass any value and no static or runtime check would catch it.
+- `src/k8s_mcp/tools/logs.py` — `tail`'s default (`100`) is an inline literal at
+  `effective_tail = tail if tail is not None else 100`, while `limit_bytes`'s default is a
+  named module-level constant (`DEFAULT_LOG_LIMIT_BYTES = 8192`). Extract
+  `DEFAULT_LOG_TAIL = 100` for consistency — both defaults are equally part of this tool's
+  documented contract (PRD §6) and should be equally easy to find/grep for for the next
+  reader.
+
+**Interaction with existing rules:** none — pure consistency cleanup, zero behavior change.
+Low effort, low risk; good first task for whoever picks up this list.
+
+### FR16. Add automated lint/type-checking (`mypy` + `ruff`)
+
+**Motivation.** This project's own coding guidelines (strong typing, avoid loose types,
+consistent naming, function/class size limits) are currently enforced only by manual review —
+nothing in `pyproject.toml` or CI actually checks them. FR15's `object`-typed parameter is a
+concrete example of exactly the kind of deviation a type checker would have caught
+automatically instead of requiring a human to notice it during a later review pass.
+
+**Proposed shape:**
+- Add `mypy>=1.10` and `ruff>=0.6` to `pyproject.toml`'s `dev` optional-dependencies group.
+- Baseline `mypy` config (a `[tool.mypy]` section, or a separate `mypy.ini`) — start with
+  `disallow_untyped_defs = true` and `warn_return_any = true` at minimum; a full `strict = true`
+  pass may surface pre-existing gaps beyond FR15's one finding and should be scoped as its own
+  follow-up if so, not silently absorbed into this FR.
+- Baseline `ruff` config (`[tool.ruff]` in `pyproject.toml`) covering at least the default
+  lint rule set plus import-sorting; `ruff format` as the formatter (already effectively
+  followed by hand across this codebase, per its consistent style — codifying it prevents
+  drift as more contributors touch it).
+- Document both as a `README.md` Testing-section step (`uv run mypy src`, `uv run ruff check`),
+  alongside the existing `pytest` instructions.
+
+**Interaction with existing rules:** none direct — this is tooling that enforces rules already
+stated in this project's own `CLAUDE.md`-equivalent guidelines, not new design surface.
+
+### FR17. Pin `fastmcp` to a tested version range
+
+**Motivation.** `pyproject.toml`'s `dependencies` still lists `fastmcp>=0.2` — unbounded, and
+provably wrong: Issue 13's full history (see `CHANGELOG.md`) is a two-round crash caused
+specifically by `fastmcp` API differences between versions (`add_tool()` vs. `.tool()`;
+`**kwargs`-shaped tool schemas rejected starting at some version at/before `4.0.4`, which this
+project's code now assumes throughout `server.py`). A fresh `pip install`/`uv sync` today could
+still resolve to a `fastmcp` version old enough to reproduce Issue 13's exact crash, because
+nothing in the dependency constraint reflects what was actually fixed against.
+
+**Proposed shape:** change `"fastmcp>=0.2"` to a range covering the version this project is
+actually built and tested against (`fastmcp>=4.0,<5`, adjusted to whatever the currently
+installed/tested version genuinely is — confirm via `uv pip show fastmcp` at implementation
+time rather than assuming `4.0.4` is still current).
+
+**Interaction with existing rules:** none — a packaging-manifest fix, same class of change as
+Issue 37's `pyyaml` fix, not a code change.
+
+### FR18. Add CI (GitHub Actions) running the test suite on push/PR
+
+**Motivation.** This is a public GitHub repository with 337 passing tests and zero automated
+verification that they still pass on any given push or PR — every verification in this
+project's history (`CHANGELOG.md`) was a manual `pytest` run during a review session. A
+contributor (or a future automated change) could break the suite and nothing would flag it
+before merge.
+
+**Proposed shape:** a minimal `.github/workflows/test.yml` — checkout, set up Python 3.11+,
+`uv sync --extra dev`, `PYTHONPATH=. uv run pytest -q`, triggered on `push` and `pull_request`
+against `main`. Once FR16 lands, add `uv run ruff check` and `uv run mypy src` as additional
+steps in the same workflow rather than a second one.
+
+**Interaction with existing rules:** none — infrastructure, not application code.
+
+### FR19. Split `errors.py` into a small package by error domain (low priority)
+
+**Motivation.** `src/k8s_mcp/errors.py` is 306 lines — over this project's own stated
+300-line-per-module guideline (Rule 9). It's a flat catalog of ~20 small, independent helper
+functions (each following the identical `_base()` + specific-fields shape) spanning several
+unrelated domains: core resolution errors (`ambiguous_resource`, `unknown_resource`, ...),
+file-I/O errors (`unsafe_path`, `file_exists`, `file_write_failed`, `file_read_failed`), and
+Helm-specific errors (`helm_release_not_found`, `helm_release_decode_failed`). Not a
+correctness problem — no shared mutable state, no complex logic — but it's a single file doing
+several unrelated jobs.
+
+**Proposed shape:** convert `errors.py` into a package `errors/` — `errors/core.py` (the
+original R2/R6/R7/R8 contract helpers), `errors/files.py` (FR9/FR10's path/file helpers),
+`errors/helm.py` (FR12's helpers) — with `errors/__init__.py` re-exporting every public name so
+every existing `from ..errors import X` call site across the codebase needs zero changes.
+Purely organizational; low priority relative to FR15–FR18, worth doing only once those land
+(splitting a file that's about to grow again from FR14's new `invalid_grep_pattern` helper is
+premature).
+
+**Interaction with existing rules:** none — module reorganization, zero behavior change.

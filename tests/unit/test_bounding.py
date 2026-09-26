@@ -76,6 +76,29 @@ class TestBoundLogs:
         assert result["logs"] == ""
         assert result["_bound"]["truncated"] is False
 
+    def test_limit_bytes_truncated(self):
+        stdout = "x" * 8192
+        result = bound_logs(stdout, limit_bytes=8192)
+        assert result["_bound"]["truncated"] is True
+        assert result["_bound"]["limit_bytes"] == 8192
+        assert "message" in result["_bound"]
+        assert "8192" in result["_bound"]["message"]
+
+    def test_limit_bytes_not_truncated(self):
+        stdout = "short log"
+        result = bound_logs(stdout, limit_bytes=8192)
+        assert result["_bound"]["truncated"] is False
+        assert result["_bound"]["limit_bytes"] == 8192
+        assert "message" not in result["_bound"]
+
+    def test_limit_bytes_and_tail_both_report(self):
+        stdout = "\n".join(f"line-{i}" for i in range(100))
+        result = bound_logs(stdout, tail=10, limit_bytes=5)
+        # tail truncation already sets truncated=True; byte check must not clobber it
+        assert result["_bound"]["truncated"] is True
+        assert result["_bound"]["tail"] == 10
+        assert result["_bound"]["limit_bytes"] == 5
+
 
 class TestExtractIdentity:
     def test_full_metadata(self):

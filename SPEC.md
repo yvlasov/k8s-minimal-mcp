@@ -489,3 +489,56 @@ verbatim. Now: `.data`/`.stringData` → `{"redacted_keys": [...]}` when `kind =
 - **`server.py`** — registered under the readonly gate. `_dispatch()`'s first parameter is
   named `tool_verb` (not `verb`) specifically to avoid colliding with this tool's own `verb`
   domain argument (see `CHANGELOG.md` Issue 40).
+
+### FR14. `grep` — server-side text-filtering for unstructured-text tool output
+
+**Status: Proposed, not yet accepted into v1 scope** — this section exists so the plan is
+ready to execute the moment it's accepted; do not start building from PRD §15 FR14 alone.
+
+- **`errors.py`** — `ERROR_INVALID_GREP_PATTERN = "invalid_grep_pattern"` +
+  `invalid_grep_pattern(context, pattern, *, detail=None)`, matching the
+  `invalid_selector`/`invalid_jsonpath_template` shape exactly.
+- **New shared helper, `resolution/grep_filter.py`** (colocated with
+  `annotation_selector.py`/`jsonpath_validation.py` as the natural home — a third instance of
+  "caller-supplied query syntax the server evaluates itself," not kubectl):
+  `compile_grep_pattern(pattern: str, *, ignore_case: bool = False) -> re.Pattern | str` —
+  returns a compiled pattern, or a detail string on `re.error` (mirrors
+  `check_nested_braces()`'s return-`None`-or-detail-string convention). A second function,
+  `filter_lines(text: str, compiled: re.Pattern) -> tuple[str, int, int]` — returns
+  `(filtered_text, matched_count, total_count)`, applied identically by every caller below so
+  `_filtered` reporting is byte-for-byte consistent across tools (same DRY reasoning
+  `annotation_selector.py` already established for FR2).
+- **`tools/logs.py`:** add `grep: str | None = None`, `grep_ignore_case: bool = False`.
+  Fail-fast via `compile_grep_pattern()` before `resolve()` (same placement as every other
+  fail-fast check in this project). After `bound_logs()` already applied `tail`/`limit_bytes`
+  bounding (grep filters *within* that already-bounded window — see PRD §15 FR14's open
+  question on this), apply `filter_lines()` to the `logs` string, add
+  `_filtered: {"matched": N, "total": M}` alongside the existing `_bound` dict — two sibling
+  metadata keys, not merged into one.
+- **`tools/describe.py`:** add `grep`/`grep_ignore_case`. Same fail-fast check. Apply
+  `filter_lines()` to the `{"output": ...}` string after the kubectl call, add `_filtered`
+  alongside `output` in the response dict.
+- **`tools/get.py`:** add `grep`/`grep_ignore_case`, but only meaningful when `output="wide"`
+  (document this in the tool description — passing `grep` with any other `output` value is a
+  no-op, not an error, since JSON output already has `annotation_selector`/`jsonpath_template`).
+  Apply `filter_lines()` to the wide-table text the same way as the two tools above.
+- **`server.py`:** add `grep`/`grep_ignore_case` to the `logs()`, `describe()`, and `get()`
+  wrapper signatures and their `_dispatch(...)` kwargs; update all three tool descriptions.
+  Update `k_logs`'s description to note that `grep` filters within the `tail`/`limit_bytes`
+  window, not the full log history (per PRD §15 FR14's open question).
+- **`tests/unit/test_grep_filter.py`** (new): `compile_grep_pattern()` valid/invalid regex,
+  `ignore_case` behavior; `filter_lines()` matched/total counts on multi-line text, empty
+  input, zero matches, all-match.
+- **Per-tool tests** (`test_tools_logs.py`/`test_tools_describe.py`/`test_tools_get.py`): valid
+  `grep` narrows the text and reports `_filtered`; malformed regex → `invalid_grep_pattern`,
+  `resolve()`/kubectl never called; `grep_ignore_case` behavior; **regression test proving the
+  ordering constraint PRD §15 FR14 requires** — construct a `k_logs` response where
+  `_bound.message` (the byte-truncation hint) is present, apply a `grep` pattern that would not
+  match the hint text if it were part of `logs`, and assert `_bound.message` is still present
+  unchanged (i.e. `grep` never touches `_bound`, only the `logs` field) — this is the one test
+  that would catch a future implementation mistakenly concatenating the hint into greppable
+  text.
+- **`tests/unit/test_server.py`:** update the `logs`/`describe`/`get` entries in
+  `_TOOL_DEFINITIONS` with the new `grep`/`grep_ignore_case` kwargs, matching the real wrapper
+  call shape exactly (see Issue 40/41 — this is the exact class of mismatch that test exists to
+  catch).

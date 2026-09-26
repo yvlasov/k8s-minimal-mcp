@@ -48,33 +48,47 @@ def bound_get_names(data: Any) -> dict[str, Any]:
     }
 
 
-def bound_logs(stdout: str, *, tail: int | None = None) -> dict[str, Any]:
-    """Apply tail bound to log output.
+def bound_logs(stdout: str, *, tail: int | None = None, limit_bytes: int | None = None) -> dict[str, Any]:
+    """Apply tail and byte-limit bounds to log output.
+
+    `stdout` is kubectl's own output, already subject to whatever `--limit-bytes`
+    was passed to the kubectl invocation — `limit_bytes` here is only used to
+    detect and report that a byte truncation likely occurred, not to re-truncate.
 
     Returns a dict with:
       - logs: the (possibly truncated) log string
-      - _bound: metadata about the bound applied
+      - _bound: metadata about the bound(s) applied
     """
     lines = stdout.splitlines()
 
     if tail is not None and tail > 0 and len(lines) > tail:
         truncated_lines = lines[-tail:]
-        return {
-            "logs": "\n".join(truncated_lines),
-            "_bound": {
-                "tail": tail,
-                "total_lines": len(lines),
-                "truncated": True,
-            },
+        logs_out = "\n".join(truncated_lines)
+        bound: dict[str, Any] = {
+            "tail": tail,
+            "total_lines": len(lines),
+            "truncated": True,
         }
-
-    return {
-        "logs": stdout,
-        "_bound": {
+    else:
+        logs_out = stdout
+        bound = {
             "tail": tail if tail else len(lines),
             "truncated": False,
-        },
-    }
+        }
+
+    if limit_bytes is not None:
+        bound["limit_bytes"] = limit_bytes
+        # kubectl's --limit-bytes returns "at least this many bytes" (stops after
+        # completing the line that crosses the limit) — a returned size at or
+        # above the limit is the only signal available that truncation occurred.
+        if len(stdout.encode("utf-8")) >= limit_bytes:
+            bound["truncated"] = True
+            bound["message"] = (
+                f"output truncated to {limit_bytes} bytes by --limit-bytes; "
+                "pass a larger limit_bytes to retrieve more"
+            )
+
+    return {"logs": logs_out, "_bound": bound}
 
 
 def _extract_identity(obj: Any) -> dict[str, Any]:

@@ -109,6 +109,8 @@ _TOOL_DEFINITIONS: list[tuple[str, str, dict]] = [
             "tail": None,
             "previous": False,
             "since": None,
+            "since_time": None,
+            "limit_bytes": None,
         },
     ),
     (
