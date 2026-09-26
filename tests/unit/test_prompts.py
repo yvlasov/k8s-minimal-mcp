@@ -77,6 +77,11 @@ class TestCiliumTroubleshootConnectivity:
         assert "cilium_drop_count_total" in result
         assert "not reachable" in result.lower()
 
+    def test_promql_label_values_quoted(self):
+        result = cilium_troubleshoot_connectivity("sinsia-pl", "pod-to-service connectivity failing")
+        assert 'direction="INGRESS"' in result
+        assert 'direction="EGRESS"' in result
+
     def test_extract_pod_name_from_description(self):
         from k8s_mcp.utils import extract_named_entity
         assert extract_named_entity("pod my-app-pod cannot reach service", "pod") == "my-app-pod"

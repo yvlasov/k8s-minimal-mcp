@@ -101,8 +101,8 @@ def cilium_troubleshoot_connectivity(cluster: str, issue_description: str) -> st
         "(cilium_drop_count_total by direction/reason) are Prometheus-exposed metrics, "
         "not reachable via any kubectl-based tool in this project. Query them directly "
         "from your Prometheus/Grafana instance or via promql:\n"
-        "  sum(rate(cilium_drop_count_total{direction=INGRESS,reason!=\"policy-denied\"}[5m])) by (reason)\n"
-        "  sum(rate(cilium_drop_count_total{direction=EGRESS}[5m])) by (reason)",
+        "  sum(rate(cilium_drop_count_total{direction=\"INGRESS\",reason!=\"policy-denied\"}[5m])) by (reason)\n"
+        "  sum(rate(cilium_drop_count_total{direction=\"EGRESS\"}[5m])) by (reason)",
     ])
 
     return "\n".join(lines)
