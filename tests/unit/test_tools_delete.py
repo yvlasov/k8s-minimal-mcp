@@ -36,6 +36,8 @@ class TestHandleDelete:
         args = mock_run.call_args[0][1]
         assert "my-deploy" in args
         assert "-l" not in args
+        assert "-n" in args
+        assert "default" in args
 
     @patch("src.k8s_mcp.tools.delete.resolve")
     @patch("src.k8s_mcp.tools.delete.run_kubectl_checked")

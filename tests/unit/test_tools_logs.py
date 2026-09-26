@@ -36,6 +36,8 @@ class TestHandleLogs:
         args = mock_run.call_args[0][1]
         assert "--tail" in args
         assert "100" in args
+        assert "-n" in args
+        assert "default" in args
 
     @patch("src.k8s_mcp.tools.logs.resolve")
     @patch("src.k8s_mcp.tools.logs.run_kubectl_checked")

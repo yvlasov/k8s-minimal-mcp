@@ -110,6 +110,8 @@ class TestHandleGetHelmRelease:
         args = mock_run.call_args[0][1]
         assert "-l" in args
         assert "owner=helm,name=myapp" in args
+        assert "-n" in args
+        assert "default" in args
 
     @patch("src.k8s_mcp.tools.get_helm_release.resolve")
     @patch("src.k8s_mcp.tools.get_helm_release.run_kubectl_checked")

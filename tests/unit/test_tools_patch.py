@@ -35,6 +35,8 @@ class TestHandlePatch:
 
         assert result["success"] is True
         assert "data" in result
+        assert "-n" in mock_run.call_args[0][1]
+        assert "default" in mock_run.call_args[0][1]
 
     @patch("src.k8s_mcp.tools.patch.resolve")
     @patch("src.k8s_mcp.tools.patch.run_kubectl_checked")
