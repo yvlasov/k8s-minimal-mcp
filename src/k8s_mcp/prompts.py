@@ -11,6 +11,8 @@ unconditionally (R7 gating governs tools that act on the cluster).
 
 from __future__ import annotations
 
+from .utils import extract_named_entity
+
 
 def argocd_app_health(name: str, namespace: str) -> str:
     """Prompt: check ArgoCD Application sync/health status.
@@ -35,28 +37,75 @@ def argocd_app_health(name: str, namespace: str) -> str:
     )
 
 
-def cilium_troubleshoot_connectivity(namespace: str, pod: str) -> str:
+def cilium_troubleshoot_connectivity(cluster: str, issue_description: str) -> str:
     """Prompt: troubleshoot pod-to-service connectivity with Cilium.
 
     Returns a string instructing the model to run a step-by-step
     connectivity troubleshooting workflow using Cilium CRDs.
+
+    The prompt supports two modes:
+    - Cluster-wide triage (default): investigate fleet-wide or diffuse symptoms
+      by checking ciliumnodes, ciliumclusterwidenetworkpolicies, and ciliumidentities.
+    - Pod-specific narrowing: if a specific pod name appears in issue_description,
+      add steps to inspect ciliumendpoints and ciliumnetworkpolicies for that pod.
+
+    Every generated tool call includes context=<cluster> to avoid parameter-validation
+    failures when the model follows the prompt's instructions verbatim.
     """
-    return (
-        f"Troubleshoot connectivity for pod '{pod}' in namespace '{namespace}'.\n\n"
-        "Step 1 — Check CiliumEndpoint (is the pod managed by Cilium?):\n"
-        f"  k_get(resource=\"ciliumendpoints\", name=\"{pod}\", "
-        f"namespace=\"{namespace}\", output=\"yaml\")\n"
-        "Look for: status.state (Ready/NotReady), endpoint_id, connectivity\n\n"
-        "Step 2 — Check CiliumNetworkPolicy (any policies affecting this pod?):\n"
-        f"  k_get(resource=\"ciliumnetworkpolicies\", namespace=\"{namespace}\", "
-        f"output=\"yaml\")\n"
-        "Look for: spec.endpointSelector matching the pod's labels, ingress/egress rules\n\n"
-        "Step 3 — Describe the pod for network-related annotations:\n"
-        f"  k_describe(resource=\"pods\", name=\"{pod}\", namespace=\"{namespace}\")\n"
-        "Look for: ciliumEndpointReady annotation, network policies referenced\n\n"
-        "Note: Hubble flow and drop-verdict data are NOT reachable via any tool "
-        "in this project — there is no backing API resource for Hubble."
-    )
+    lines = [
+        f"Troubleshoot connectivity in cluster '{cluster}'.",
+        f"Issue description: {issue_description}",
+        "",
+        "Step 1 — Check Cilium node status (are all nodes healthy?):",
+        f"  k_get(resource=\"ciliumnodes\", context=\"{cluster}\", output=\"yaml\")",
+        "Look for: status.conditions[] where type=\"KubeControllerReady\" or \"KubeProxyReady\" "
+        "showing status=\"False\", status.state=\"disconnected\"/\"connected\" on individual nodes\n",
+    ]
+
+    lines.extend([
+        "Step 2 — Check CiliumClusterwideNetworkPolicies (any cluster-wide drops?):",
+        f"  k_get(resource=\"ciliumclusterwidenetworkpolicies\", context=\"{cluster}\", output=\"yaml\")",
+        "Look for: spec.endpointSelector matching broad selectors (e.g. '{{}}' for all pods), "
+        "ingress/egress rules with fromEndpoints/toEndpoints matchers\n",
+    ])
+
+    lines.extend([
+        "Step 3 — Check CiliumIdentities (are pod identities resolved?):",
+        f"  k_get(resource=\"ciliumidentities\", context=\"{cluster}\", output=\"yaml\")",
+        "Look for: identities[].labels matching the pods involved in the connectivity issue, "
+        "identities[].reserved keys (host, init, world, unmanaged)\n",
+    ])
+
+    # Pod-specific path: check if a pod name appears in the issue description
+    pod_name = extract_named_entity(issue_description, "pod")
+    if pod_name:
+        lines.extend([
+            "",
+            f"Step 4 — Pod-specific: Check CiliumEndpoint for '{pod_name}':",
+            f"  k_get(resource=\"ciliumendpoints\", name=\"{pod_name}\", context=\"{cluster}\", output=\"yaml\")",
+            "Look for: status.state (Ready/NotReady), endpoint_id, connectivity.state, "
+            "healthEndpoints[].healthz\n",
+        ])
+
+        lines.extend([
+            "Step 5 — Pod-specific: Check CiliumNetworkPolicies affecting this pod:",
+            f"  k_get(resource=\"ciliumnetworkpolicies\", context=\"{cluster}\", output=\"yaml\")",
+            "Look for: spec.endpointSelector matching the pod's labels (get pod labels from "
+            f"k_get(resource=\"pods\", name=\"{pod_name}\", context=\"{cluster}\", output=\"yaml\")), "
+            "ingress/egress rules with fromEndpoints/toEndpoints matchers\n",
+        ])
+
+    lines.extend([
+        "",
+        "Note: Cilium's own eBPF drop-reason counters "
+        "(cilium_drop_count_total by direction/reason) are Prometheus-exposed metrics, "
+        "not reachable via any kubectl-based tool in this project. Query them directly "
+        "from your Prometheus/Grafana instance or via promql:\n"
+        "  sum(rate(cilium_drop_count_total{direction=INGRESS,reason!=\"policy-denied\"}[5m])) by (reason)\n"
+        "  sum(rate(cilium_drop_count_total{direction=EGRESS}[5m])) by (reason)",
+    ])
+
+    return "\n".join(lines)
 
 
 def rbac_effective_permissions(as_user: str, namespace: str) -> str:

@@ -31,27 +31,58 @@ class TestArgocdAppHealth:
 
 
 class TestCiliumTroubleshootConnectivity:
-    def test_contains_exact_resource_strings(self):
-        result = cilium_troubleshoot_connectivity("default", "my-pod")
+    def test_contains_cluster_wide_resource_strings(self):
+        result = cilium_troubleshoot_connectivity("sinsia-pl", "pod-to-service connectivity failing")
+        assert "ciliumnodes" in result
+        assert "ciliumclusterwidenetworkpolicies" in result
+        assert "ciliumidentities" in result
+
+    def test_contains_pod_specific_resources_when_pod_named(self):
+        result = cilium_troubleshoot_connectivity("sinsia-pl", "pod my-app-pod cannot reach service")
         assert "ciliumendpoints" in result
         assert "ciliumnetworkpolicies" in result
-        assert "pods" in result
+        assert "my-app-pod" in result
 
-    def test_contains_step_workflow(self):
-        result = cilium_troubleshoot_connectivity("default", "my-pod")
+    def test_contains_no_pod_specific_resources_when_no_pod_named(self):
+        result = cilium_troubleshoot_connectivity("sinsia-pl", "fleet-wide connectivity timeouts on :10250")
+        assert "ciliumendpoints" not in result
+        assert "ciliumnetworkpolicies" not in result
+
+    def test_every_generated_call_includes_context(self):
+        result = cilium_troubleshoot_connectivity("sinsia-pl", "pod my-app-pod cannot reach service")
+        # Count occurrences of context= in k_get/k_describe calls
+        import re
+        context_calls = re.findall(r'context="sinsia-pl"', result)
+        assert len(context_calls) >= 3  # At least ciliumnodes, ciliumclusterwidenetworkpolicies, ciliumidentities
+
+    def test_contains_cluster_wide_step_workflow(self):
+        result = cilium_troubleshoot_connectivity("sinsia-pl", "pod-to-service connectivity failing")
         assert "Step 1" in result
         assert "Step 2" in result
         assert "Step 3" in result
 
-    def test_contains_input_params(self):
-        result = cilium_troubleshoot_connectivity("default", "my-pod")
-        assert "my-pod" in result
-        assert "default" in result
+    def test_contains_pod_specific_steps_when_pod_named(self):
+        result = cilium_troubleshoot_connectivity("sinsia-pl", "pod my-app-pod cannot reach service")
+        assert "Step 4" in result
+        assert "Step 5" in result
 
-    def test_mentions_hubble_unreachable(self):
-        result = cilium_troubleshoot_connectivity("default", "my-pod")
-        assert "NOT reachable" in result or "not reachable" in result
-        assert "Hubble" in result
+    def test_contains_input_params(self):
+        result = cilium_troubleshoot_connectivity("sinsia-pl", "pod my-app-pod cannot reach service")
+        assert "sinsia-pl" in result
+        assert "my-app-pod" in result
+
+    def test_mentions_prometheus_drop_counters(self):
+        result = cilium_troubleshoot_connectivity("sinsia-pl", "pod-to-service connectivity failing")
+        assert "Prometheus" in result
+        assert "cilium_drop_count_total" in result
+        assert "not reachable" in result.lower()
+
+    def test_extract_pod_name_from_description(self):
+        from k8s_mcp.utils import extract_named_entity
+        assert extract_named_entity("pod my-app-pod cannot reach service", "pod") == "my-app-pod"
+        assert extract_named_entity("pods/my-app-pod is failing", "pod") == "my-app-pod"
+        assert extract_named_entity("named my-app-pod", "pod") == "my-app-pod"
+        assert extract_named_entity("fleet-wide connectivity timeouts", "pod") is None
 
 
 class TestRbacEffectivePermissions:

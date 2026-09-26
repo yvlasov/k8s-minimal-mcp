@@ -139,13 +139,15 @@ def main(argv: list[str] | None = None) -> None:
                               as_user=as_user, as_group=as_group, list_all=list_all)
 
     if "logs" in allowed:
-        @app.tool(name="k_logs", description="k_logs: pod: Pod name; namespace: Pod namespace; container: Container name; tail: Number of lines from the end; previous: Use previous container instance; since: Return logs newer than a relative duration")
+        @app.tool(name="k_logs", description="k_logs: pod: Pod name; namespace: Pod namespace; container: Container name; tail: Number of lines from the end (default 100); previous: Use previous container instance; since: Return logs newer than a relative duration (e.g. '5s', '2m', '3h'); since_time: Return logs after an absolute RFC3339 timestamp (only one of since/since_time may be set, matching kubectl); limit_bytes: Maximum bytes of log output to return (default 8192 — if the response's _bound.truncated is true because of this limit, pass a larger limit_bytes to retrieve more, not a larger tail)")
         def logs(context: str, pod: str, namespace: str | None = None,
                  container: str | None = None, tail: int | None = None,
-                 previous: bool = False, since: str | None = None) -> dict[str, Any]:
+                 previous: bool = False, since: str | None = None,
+                 since_time: str | None = None, limit_bytes: int | None = None) -> dict[str, Any]:
             return _dispatch("logs", handle_logs, context, discovery_cache, allow_namespaces,
                              pod=pod, namespace=namespace, container=container,
-                             tail=tail, previous=previous, since=since)
+                             tail=tail, previous=previous, since=since,
+                             since_time=since_time, limit_bytes=limit_bytes)
 
     if "apply" in allowed:
         @app.tool(name="k_apply", description="k_apply: manifest: JSON/YAML manifest to apply (exactly one of manifest or src_file is required); src_file: absolute path to a file containing the manifest; namespace: Namespace for namespaced resources; dry_run: Dry-run mode; output: Output format (json/yaml/jsonpath); jsonpath_template: JsonPath template for output=jsonpath (for multiple fields use {.items[*]['field1','field2']} or {range}...{end} — nested {...} groups are not supported)")
@@ -211,8 +213,8 @@ def main(argv: list[str] | None = None) -> None:
         return argocd_app_health(name, namespace)
 
     @app.prompt(name="cilium_troubleshoot_connectivity", description="Troubleshoot pod-to-service connectivity with Cilium")
-    def prompt_cilium_troubleshoot_connectivity(namespace: str, pod: str) -> str:
-        return cilium_troubleshoot_connectivity(namespace, pod)
+    def prompt_cilium_troubleshoot_connectivity(cluster: str, issue_description: str) -> str:
+        return cilium_troubleshoot_connectivity(cluster, issue_description)
 
     @app.prompt(name="rbac_effective_permissions", description="Check effective RBAC permissions for a user")
     def prompt_rbac_effective_permissions(as_user: str, namespace: str) -> str:
