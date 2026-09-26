@@ -51,71 +51,6 @@ implemented" label written before it was actually true). A Status line may not c
 
 ## OPEN (not yet fixed)
 
-### 46. `k_exec` never passes `-n <namespace>` to kubectl — every call runs against the context's default namespace instead of the pod's actual one, producing false `NotFound` errors for real, running pods
-
-**File:** `src/k8s_mcp/tools/exec_.py:44-49`
-**Severity:** Critical — `k_exec` is unusable for any pod outside kubectl's default namespace (typically `"default"` unless the context sets otherwise), regardless of a correct, existing `pod`/`namespace` pair being passed in. Every other namespaced tool in this project correctly appends the flag — `apply.py:155`, `delete.py:51`, `get.py:100`, `describe.py:42`, `logs.py:57`, `patch.py:74`, `auth_can_i.py:34`, plus the ad hoc `-n` calls in `get_helm_release.py:103`/`get_secret_to_file.py:99` — confirmed by grep across all of `tools/*.py`; `exec_.py` is the sole file that never does.
-
-**Root cause, confirmed by direct code read, not hypothesis:** `handle_exec()` builds:
-```python
-args = ["exec", pod]
-if container:
-    args.extend(["-c", container])
-args.append("--")
-args.extend(command)
-```
-`namespace` is accepted as a parameter, passed into `validate()` (line 39) and later echoed into the `exec_failed()` error dict (line 60) purely for reporting — but it is **never threaded into `args`**. The resulting command is `kubectl --context <ctx> exec <pod> -- <command>` with no `-n`/`--namespace` flag at all, so kubectl resolves `<pod>` against whatever namespace the context defaults to, not the namespace the caller specified or the one the pod actually runs in.
-
-**Reproduced live (2026-09-26), raw tool calls and responses.** Target pod confirmed to exist immediately beforehand:
-```
-k_get(context="sinsia-pl", resource="pods", name="airflow-de-sinsia-pl-scheduler-5bc5856c56-78lb8", namespace="airflow-de", output="jsonpath", jsonpath_template="{.metadata.name}{\"\n\"}{.metadata.namespace}{\"\n\"}{.status.phase}{\"\n\"}containers:{.spec.containers[*].name}{\"\n\"}statuses:{range .status.containerStatuses[*]}{.name}{\"=\"}{.ready}{\" \"}{end}")
-```
-→
-```json
-{"success":true,"data":{"data":"airflow-de-sinsia-pl-scheduler-5bc5856c56-78lb8\nairflow-de\nRunning\ncontainers:scheduler git-sync scheduler-log-groomer submodule-refresher\nstatuses:git-sync=true scheduler=true scheduler-log-groomer=true submodule-refresher=true "}}
-```
-
-Three separate `k_exec` calls against that exact same `pod`/`namespace`/`context`, all failing identically:
-```
-k_exec(context="sinsia-pl", pod="airflow-de-sinsia-pl-scheduler-5bc5856c56-78lb8", namespace="airflow-de", command=["sh","-c","<ping/curl script>"])
-k_exec(context="sinsia-pl", pod="airflow-de-sinsia-pl-scheduler-5bc5856c56-78lb8", namespace="airflow-de", command=["echo","hello"])
-k_exec(context="sinsia-pl", pod="airflow-de-sinsia-pl-scheduler-5bc5856c56-78lb8", namespace="airflow-de", container="scheduler", command=["echo","hello"])
-```
-→ all three:
-```json
-{"context":"sinsia-pl","tool":"k_exec","success":false,"error":"object_not_found","raw_stderr":"Error from server (NotFound): pods \"airflow-de-sinsia-pl-scheduler-5bc5856c56-78lb8\" not found\n"}
-```
-(`error: "object_not_found"` confirms Issues 42/45's NotFound-vs-unresolvable-type fix is correctly applied here — this is a distinct, still-open bug specific to `k_exec`, not a regression of those.)
-
-Matches an earlier same-shape report from a separate investigation the same day, against two different pods in two different namespaces (`airflow-de-sinsia-pl-scheduler-...` and a `network-check` pod in `kube-system`, both confirmed `Running` via `k_get` immediately before the failing `k_exec` call) — ruling out anything pod- or namespace-specific except in the sense that any namespace other than kubectl's true context default reproduces it.
-
-**Proposed fix:** add, after line 45:
-```python
-if namespace:
-    args.extend(["-n", namespace])
-```
-matching every sibling tool's placement. Needs a new test asserting `-n <namespace>` appears in the constructed `args` when `namespace` is passed — check `tests/unit/test_tools_exec.py` first to confirm no existing case actually asserts on full `args` content with a namespace set, since that's the coverage gap that let this ship undetected (same class as Issue 17's `-c` placement gap).
-
-**Status:** OPEN, not yet fixed. Root cause fully confirmed by direct code read and cross-referenced against every sibling tool's correct implementation.
-
-**Verified (2026-09-26), credibility check without live cluster access:** confirmed by direct
-read of `exec_.py` — `namespace` is accepted, passed into `validate()`, and echoed into
-`exec_failed()`'s error dict, but genuinely never appended to `args`; `grep -n '"-n"'
-src/k8s_mcp/tools/*.py` confirms every sibling tool (`get.py`, `apply.py`, `delete.py`,
-`describe.py`, `logs.py`, `patch.py`, `auth_can_i.py`, plus the ad hoc `-n` calls in
-`get_helm_release.py`/`get_secret_to_file.py`) does append it — `exec_.py` is the sole
-exception. Confirmed the predicted test gap is real and worse than "missing coverage":
-`tests/unit/test_tools_exec.py`'s `test_exec_with_container`/`test_exec_without_container`
-both call `handle_exec(..., namespace="default", ...)` and then assert the full `args` list
-*without* `-n`/`"default"` present anywhere — i.e. the existing tests actively assert the bug
-as correct, the same shape as Issue 26's precedent, not merely an absent assertion. Proposed
-fix (`if namespace: args.extend(["-n", namespace])` after line 45) is correct and consistent
-with every sibling tool's exact placement. Live-cluster reproduction was not independently
-re-run in this pass — the report's own live evidence plus the code-level confirmation above are
-conclusive without it.
-
----
-
 ### 47. `kubectl/runner.py` — the single seam that enforces R3's mandatory `--context` — has zero direct test coverage
 
 **File:** `src/k8s_mcp/kubectl/runner.py` (no corresponding `tests/unit/test_runner.py` exists);
@@ -259,6 +194,7 @@ in `CHANGELOG.md`.
 | 43 | `cilium_troubleshoot_connectivity` prompt used `(namespace, pod)` signature, missing `context=` in all calls | `prompts.py`, `server.py`, `utils.py`, `test_prompts.py`, `test_utils.py` |
 | 44 | `cilium_troubleshoot_connectivity`'s PromQL snippets had unquoted label-matcher values | `prompts.py`, `test_prompts.py` |
 | 45 | `map_kubectl_error()`'s NotFound branch used `detail` instead of `raw_stderr` | `errors.py`, `kubectl/errors.py`, `test_errors.py`, `test_kubectl_errors.py` |
+| 46 | `k_exec` never passes `-n <namespace>` to kubectl — every call runs against the context's default namespace | `tools/exec_.py`, `test_tools_exec.py` |
 
 **Issue 22 note:** unlike the others above, Issue 22 recurred 9 times before being addressed
 structurally rather than patched once — see `CHANGELOG.md`'s "Documentation Process" section
