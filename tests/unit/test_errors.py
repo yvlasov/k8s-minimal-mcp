@@ -85,12 +85,12 @@ class TestErrorShapes:
         assert err["exit_code"] == 1
 
     def test_object_not_found_with_all_fields(self):
-        err = object_not_found("dev", "pods", name="kubelet", detail='Error from server (NotFound): pods "kubelet" not found')
+        err = object_not_found("dev", "pods", name="kubelet", raw_stderr='Error from server (NotFound): pods "kubelet" not found')
         assert err["error"] == ERROR_OBJECT_NOT_FOUND
         assert err["context"] == "dev"
         assert err["resource"] == "pods"
         assert err["name"] == "kubelet"
-        assert err["detail"] == 'Error from server (NotFound): pods "kubelet" not found'
+        assert err["raw_stderr"] == 'Error from server (NotFound): pods "kubelet" not found'
 
     def test_object_not_found_minimal(self):
         err = object_not_found("dev")
@@ -98,14 +98,14 @@ class TestErrorShapes:
         assert err["context"] == "dev"
         assert "resource" not in err
         assert "name" not in err
-        assert "detail" not in err
+        assert "raw_stderr" not in err
 
     def test_object_not_found_with_resource_only(self):
         err = object_not_found("dev", "secrets")
         assert err["error"] == ERROR_OBJECT_NOT_FOUND
         assert err["resource"] == "secrets"
         assert "name" not in err
-        assert "detail" not in err
+        assert "raw_stderr" not in err
 
     def test_all_error_codes_defined(self):
         """Ensure all error code constants are non-empty strings."""

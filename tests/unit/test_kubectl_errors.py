@@ -28,7 +28,7 @@ class TestMapKubectlError:
         )
         assert result["error"] == "object_not_found"
         assert result["context"] == "test"
-        assert 'pods "x" not found' in result["detail"]
+        assert 'pods "x" not found' in result["raw_stderr"]
 
     def test_not_found_uppercase(self):
         result = map_kubectl_error(

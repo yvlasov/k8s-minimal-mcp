@@ -280,7 +280,7 @@ def object_not_found(
     resource: str | None = None,
     *,
     name: str | None = None,
-    detail: str | None = None,
+    raw_stderr: str | None = None,
 ) -> dict[str, Any]:
     """kubectl returned NotFound for a resolved resource type — the named object doesn't exist."""
     out = _base(context, ERROR_OBJECT_NOT_FOUND)
@@ -288,8 +288,8 @@ def object_not_found(
         out["resource"] = resource
     if name:
         out["name"] = name
-    if detail:
-        out["detail"] = detail
+    if raw_stderr:
+        out["raw_stderr"] = raw_stderr
     return out
 
 

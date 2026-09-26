@@ -36,7 +36,7 @@ def map_kubectl_error(
     if "notfound" in stderr_lower or "not found" in stderr_lower:
         return object_not_found(
             context=context,
-            detail=stderr,
+            raw_stderr=stderr,
         )
 
     if "forbidden" in stderr_lower or "unauthorized" in stderr_lower:
