@@ -51,7 +51,43 @@ implemented" label written before it was actually true). A Status line may not c
 
 ## OPEN (not yet fixed)
 
----
+### 44. `cilium_troubleshoot_connectivity`'s generated PromQL snippets have invalid label-matcher syntax
+
+**File:** `src/k8s_mcp/prompts.py` (Prometheus note in `cilium_troubleshoot_connectivity`)
+**Severity:** Low — content-only bug in generated guidance text, not executable server code.
+Found during review of Issue 43's fix.
+**Problem:** the two generated PromQL examples —
+`sum(rate(cilium_drop_count_total{direction=INGRESS,reason!="policy-denied"}[5m])) by (reason)`
+and `sum(rate(cilium_drop_count_total{direction=EGRESS}[5m])) by (reason)` — use unquoted label
+values (`direction=INGRESS`/`direction=EGRESS`). PromQL requires label matcher values to be
+quoted strings (`direction="INGRESS"`); as written, both queries are a syntax error and would
+fail if a model pasted them verbatim into Prometheus/Grafana.
+**Proposed fix:** quote both label values (`direction="INGRESS"`, `direction="EGRESS"`) in
+`prompts.py`'s literal string. Add a test asserting the quoted form (`test_prompts.py`'s
+existing convention of asserting exact literal substrings applies directly here — assert
+`'direction="INGRESS"'` is present, not the unquoted form).
+
+### 45. `map_kubectl_error()`'s NotFound branch uses a different raw-stderr field name (`detail`) than its sibling branches (`raw_stderr`)
+
+**File:** `src/k8s_mcp/kubectl/errors.py`
+**Severity:** Low — no functional bug (both fields carry the same content, kubectl's raw
+stderr), but an internal consistency gap introduced by Issue 42's fix. Found during review of
+that fix.
+**Problem:** `map_kubectl_error()` has three branches returning kubectl's raw stderr text: the
+`"ambiguous"` branch and the `"forbidden"`/`"unauthorized"` branch both use an ad hoc dict with
+the field named `raw_stderr`; the `"not found"`/`"notfound"` branch (fixed under Issue 42) calls
+`object_not_found(context=context, detail=stderr)`, naming the same content `detail` instead.
+A caller trying to uniformly extract "the raw kubectl error text" across error types now has to
+special-case one error type's field name.
+**Proposed fix:** decide one name and apply it consistently — either rename `object_not_found`'s
+parameter usage to populate `raw_stderr` (matching the two ad hoc branches), or migrate
+`ambiguous_resource`/`access_denied`'s ad hoc dicts in this function to use their existing
+`errors.py` helpers (both already exist and both should be checked for what field name they use
+today) and settle on `detail` as the standard going forward. The latter is more consistent with
+this project's own "errors constructed only via `errors.py` helpers, never assembled ad hoc"
+guideline (SPEC §6) — worth fixing that guideline violation at the same time, not just the
+naming mismatch, since the `"ambiguous"`/`"forbidden"` branches being ad hoc dicts instead of
+`errors.py` helper calls predates this issue but sits in the exact same function.
 
 ---
 

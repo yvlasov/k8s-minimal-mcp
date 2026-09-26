@@ -149,6 +149,61 @@ actual trigger. Bypasses pruning/bounding, returns the raw kubectl jsonpath stri
 
 ## Fixed Issues
 
+### 43. `cilium_troubleshoot_connectivity` prompt used `(namespace, pod)`, never emitted `context=`, and didn't fit fleet-wide symptoms
+
+**File:** `src/k8s_mcp/prompts.py`, `src/k8s_mcp/server.py`, `src/k8s_mcp/utils.py` (new),
+`tests/unit/test_prompts.py`, `tests/unit/test_utils.py` (new)
+**Root cause:** the prompt's `(namespace, pod)` signature assumed a specific pod was already
+known, and none of its three generated `k_get`/`k_describe` calls included `context=` despite
+every tool requiring it as a mandatory parameter.
+**Fix:** rewrote the prompt as `cilium_troubleshoot_connectivity(cluster, issue_description)`.
+`cluster` is threaded into every generated call as `context=<cluster>`, closing the missing-
+parameter gap. The body now always runs a cluster-wide triage path first (`ciliumnodes`,
+`ciliumclusterwidenetworkpolicies`, `ciliumidentities`), then conditionally appends pod-specific
+narrowing steps (`ciliumendpoints`, `ciliumnetworkpolicies`) only if a pod name is found in
+`issue_description`. Pod-name extraction is a new, reusable `extract_named_entity(text,
+entity_type)` helper in a new `src/k8s_mcp/utils.py` module (regex-based, k8s-naming-aware,
+not scoped to Cilium specifically). Also retained: the explicit note that Cilium's own eBPF
+drop-reason counters are Prometheus-exposed, not reachable via any `k_*` tool.
+**Test:** `test_prompts.py` updated for the new signature (asserts every generated call
+includes `context=`, asserts both the cluster-wide-only and pod-named-in-description paths);
+new `test_utils.py` (12 cases) covering `extract_named_entity()`'s pattern matching, k8s-name
+validation, and no-match cases.
+**Verified:** full suite passed after the change (see Issue 42's entry below for the shared
+verification run — both fixes landed close together).
+**Known follow-up, not yet filed as its own fix:** the generated PromQL snippets in the
+Prometheus note (`cilium_drop_count_total{direction=INGRESS,...}`) are missing quotes around
+the label value — `direction=INGRESS` is invalid PromQL syntax, needs to be
+`direction="INGRESS"`. Content-only (guidance text, not executable code), but a model following
+the prompt verbatim would get a Prometheus parse error. See `KNOWN_ISSUES.md` Issue 44.
+
+### 42. `map_kubectl_error()` conflated "resource type unresolvable" with "named object legitimately doesn't exist"
+
+**File:** `src/k8s_mcp/errors.py`, `src/k8s_mcp/kubectl/errors.py`,
+`tests/unit/test_kubectl_errors.py`, `tests/unit/test_errors.py`
+**Root cause:** confirmed via `kubectl/runner.py`'s single call site that `map_kubectl_error()`
+only ever runs *after* `resolve()`/`validate()` (R8) already succeeded — meaning the
+"type doesn't resolve" case structurally never reaches this function at all (`resolve()`
+already rejects it earlier, with its own `unknown_resource`, before kubectl ever runs). Every
+`"not found"`/`"notfound"` stderr this function sees was therefore always the
+resolved-type-but-missing-object case — not two shapes needing a heuristic to distinguish, only
+one, previously mislabeled.
+**Fix:** added `ERROR_OBJECT_NOT_FOUND = "object_not_found"` + `object_not_found(context,
+resource=None, *, name=None, detail=None)` to `errors.py`. `kubectl/errors.py`'s `"not
+found"`/`"notfound"` branch now returns `object_not_found(context=context, detail=stderr)`
+instead of the old ad hoc `{"error": "unknown_resource", ...}` dict.
+**Test:** `test_kubectl_errors.py`'s two tests that previously asserted `unknown_resource` for
+this branch were corrected to assert `object_not_found` (not just supplemented — per the
+Issue 26 precedent, a test asserting the old, wrong behavior as correct must not survive
+alongside the fix). New `test_errors.py::test_object_not_found_with_all_fields`/
+`test_object_not_found_minimal` cover the helper directly.
+**Verified:** full suite — 360 passed, 9 skipped.
+**Known follow-up, not yet filed as its own fix:** `object_not_found()`'s raw kubectl stderr
+text is carried in a field named `detail`, while the sibling `ambiguous_resource`/
+`access_denied` branches in the same `map_kubectl_error()` function still use an ad hoc dict
+with the field named `raw_stderr` for the same conceptual content. Same function, two field
+names for the same thing. See `KNOWN_ISSUES.md` Issue 45.
+
 ### 41. No test exercised `server.py`'s `_dispatch()` path — every unit test called handlers directly
 
 **File:** `tests/unit/test_server.py` (new), `src/k8s_mcp/server.py`

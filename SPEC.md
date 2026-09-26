@@ -88,6 +88,7 @@ k8s-minimal-mcp/
 │       ├── access.py              # R7: access-level -> allowed verb set; registration-time filter, not per-call check
 │       │
 │       ├── prompts.py             # FR11: MCP prompts (ArgoCD/Cilium status guidance) — registered unconditionally, not gated by access level
+│       ├── utils.py               # extract_named_entity() — free-text entity extraction (added for FR11's cilium_troubleshoot_connectivity, Issue 43 fix)
 │       │
 │       └── data/
 │           └── core_resources.toml # R2 core table, version-controlled static data (PRD §14), NOT inline code
@@ -100,6 +101,7 @@ k8s-minimal-mcp/
 │   │   ├── test_access.py         # R7 registration filtering per level
 │   │   ├── test_errors.py         # §7 error contract shape for each code
 │   │   ├── test_prompts.py        # FR11: exact resource=/field-path string assertions per prompt
+│   │   ├── test_utils.py          # extract_named_entity() pattern coverage
 │   │   ├── test_tools_get_helm_release.py  # FR12: decode-chain, revision-selection, redaction-gap coverage
 │   │   ├── test_tools_auth_can_i.py   # FR13: exit-code mapping, --as/--as-group ordering, --list parsing
 │   │   └── test_server.py             # _dispatch() smoke tests, every registered tool x every access level, using real handlers (only resolve/run_kubectl mocked)

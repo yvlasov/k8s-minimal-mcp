@@ -139,7 +139,7 @@ Core table and discovery entries both carry: canonical name, shortnames, kind, g
 }
 ```
 
-Error codes: `ambiguous_resource`, `unknown_resource` (+ `suggestions`), `verb_unsupported`, `namespace_invalid` (cluster-scoped resource given a namespace, or vice versa), `unknown_context` (+ **full valid context list**, so a wrong guess self-corrects in one round-trip), `access_denied` (verb outside current access level). Known gap: `unknown_resource` also currently fires for a resolved-type-but-missing-object `NotFound` — see `KNOWN_ISSUES.md` Issue 42.
+Error codes: `ambiguous_resource`, `unknown_resource` (+ `suggestions` — resolver-level, before kubectl ever runs), `object_not_found` (resolved type, but kubectl returned `NotFound` for the named object — see `CHANGELOG.md` Issue 42), `verb_unsupported`, `namespace_invalid` (cluster-scoped resource given a namespace, or vice versa), `unknown_context` (+ **full valid context list**, so a wrong guess self-corrects in one round-trip), `access_denied` (verb outside current access level).
 
 **Cache duplication note:** keying strictly per-`context` duplicates identical CRD data when one cluster is reachable via multiple contexts. Accepted for v1 (avoids a separate cluster-identity resolution step); revisit if measurable.
 
