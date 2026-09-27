@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..resolution import resolve, validate, DiscoveryCache
+from ..resolution.grep_filter import compile_grep_pattern, filter_lines
 from ..kubectl.runner import run_kubectl_checked
 from ..output import envelope
 
@@ -20,9 +21,20 @@ def handle_describe(
     name: str,
     *,
     namespace: str | None = None,
+    grep: str | None = None,
+    grep_ignore_case: bool = False,
     discovery_cache: DiscoveryCache | None = None,
 ) -> dict[str, Any]:
     """Handle a k_describe call — delegates to kubectl describe verbatim."""
+    # Fail-fast: compile grep pattern before resolve()
+    grep_compiled = None
+    if grep:
+        grep_result = compile_grep_pattern(grep, ignore_case=grep_ignore_case)
+        if isinstance(grep_result, dict) and "error" in grep_result:
+            from ..errors import invalid_grep_pattern
+            return envelope(invalid_grep_pattern(context, grep, detail=grep_result["error"]), context, "k_describe", success=False)
+        grep_compiled = grep_result
+
     # Resolve resource → GVK
     res = resolve(context, resource, discovery_cache=discovery_cache)
     if isinstance(res, dict) and "error" in res:
@@ -46,6 +58,14 @@ def handle_describe(
     if "error" in result:
         return envelope(result, context, "k_describe", success=False)
 
-    return envelope({
+    response: dict[str, Any] = {
         "output": result["stdout"],
-    }, context, "k_describe", success=True)
+    }
+
+    # Apply grep filter to the output text field only
+    if grep_compiled is not None:
+        filtered_text, matched, total = filter_lines(result["stdout"], grep_compiled)  # type: ignore[arg-type]
+        response["output"] = filtered_text
+        response["_filtered"] = {"matched": matched, "total": total}
+
+    return envelope(response, context, "k_describe", success=True)

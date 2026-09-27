@@ -108,16 +108,18 @@ def main(argv: list[str] | None = None) -> None:
                              search=search)
 
     if "get" in allowed:
-        @app.tool(name="k_get", description="k_get: resource: Resource type; name: Resource name; namespace: Namespace; all_namespaces: List across all namespaces; label_selector: Kubernetes label selector; field_selector: Kubernetes field selector; output: Output format (name/json/yaml/wide/jsonpath); jsonpath_template: JsonPath template for output=jsonpath (for multiple fields use {.items[*]['field1','field2']} or {range}...{end} — nested {...} groups are not supported); annotation_selector: Filter by annotations (key=value, key!=value, key)")
+        @app.tool(name="k_get", description="k_get: resource: Resource type; name: Resource name; namespace: Namespace; all_namespaces: List across all namespaces; label_selector: Kubernetes label selector; field_selector: Kubernetes field selector; output: Output format (name/json/yaml/wide/jsonpath); jsonpath_template: JsonPath template for output=jsonpath (for multiple fields use {.items[*]['field1','field2']} or {range}...{end} — nested {...} groups are not supported); annotation_selector: Filter by annotations (key=value, key!=value, key); grep: Filter output lines by regex (only meaningful with output=wide); grep_ignore_case: Case-insensitive grep matching")
         def get(context: str, resource: str, name: str | None = None, namespace: str | None = None,
                 all_namespaces: bool = False, label_selector: str | None = None,
                 field_selector: str | None = None, output: str | None = None,
-                jsonpath_template: str | None = None, annotation_selector: str | None = None) -> dict[str, Any]:
+                jsonpath_template: str | None = None, annotation_selector: str | None = None,
+                grep: str | None = None, grep_ignore_case: bool = False) -> dict[str, Any]:
             return _dispatch("get", handle_get, context, discovery_cache, allow_namespaces,
                              resource=resource, name=name, namespace=namespace,
                              all_namespaces=all_namespaces, label_selector=label_selector,
                              field_selector=field_selector, output=output,
-                             jsonpath_template=jsonpath_template, annotation_selector=annotation_selector)
+                             jsonpath_template=jsonpath_template, annotation_selector=annotation_selector,
+                             grep=grep, grep_ignore_case=grep_ignore_case)
 
     if "get_helm_release" in allowed:
         @app.tool(name="k_get_helm_release", description="k_get_helm_release: release: Helm release name; namespace: Namespace; revision: Specific revision number (default: highest); include_manifest: Include the full rendered manifest in the response")
@@ -139,15 +141,17 @@ def main(argv: list[str] | None = None) -> None:
                               as_user=as_user, as_group=as_group, list_all=list_all)
 
     if "logs" in allowed:
-        @app.tool(name="k_logs", description="k_logs: pod: Pod name; namespace: Pod namespace; container: Container name; tail: Number of lines from the end (default 100); previous: Use previous container instance; since: Return logs newer than a relative duration (e.g. '5s', '2m', '3h'); since_time: Return logs after an absolute RFC3339 timestamp (only one of since/since_time may be set, matching kubectl); limit_bytes: Maximum bytes of log output to return (default 8192 — if the response's _bound.truncated is true because of this limit, pass a larger limit_bytes to retrieve more, not a larger tail)")
+        @app.tool(name="k_logs", description="k_logs: pod: Pod name; namespace: Pod namespace; container: Container name; tail: Number of lines from the end (default 100); previous: Use previous container instance; since: Return logs newer than a relative duration (e.g. '5s', '2m', '3h'); since_time: Return logs after an absolute RFC3339 timestamp (only one of since/since_time may be set, matching kubectl); limit_bytes: Maximum bytes of log output to return (default 8192 — if the response's _bound.truncated is true because of this limit, pass a larger limit_bytes to retrieve more, not a larger tail); grep: Filter log lines by regex (filters within the tail/limit_bytes window, not full log history); grep_ignore_case: Case-insensitive grep matching")
         def logs(context: str, pod: str, namespace: str | None = None,
                  container: str | None = None, tail: int | None = None,
                  previous: bool = False, since: str | None = None,
-                 since_time: str | None = None, limit_bytes: int | None = None) -> dict[str, Any]:
+                 since_time: str | None = None, limit_bytes: int | None = None,
+                 grep: str | None = None, grep_ignore_case: bool = False) -> dict[str, Any]:
             return _dispatch("logs", handle_logs, context, discovery_cache, allow_namespaces,
                              pod=pod, namespace=namespace, container=container,
                              tail=tail, previous=previous, since=since,
-                             since_time=since_time, limit_bytes=limit_bytes)
+                             since_time=since_time, limit_bytes=limit_bytes,
+                             grep=grep, grep_ignore_case=grep_ignore_case)
 
     if "apply" in allowed:
         @app.tool(name="k_apply", description="k_apply: manifest: JSON/YAML manifest to apply (exactly one of manifest or src_file is required); src_file: absolute path to a file containing the manifest; namespace: Namespace for namespaced resources; dry_run: Dry-run mode; output: Output format (json/yaml/jsonpath); jsonpath_template: JsonPath template for output=jsonpath (for multiple fields use {.items[*]['field1','field2']} or {range}...{end} — nested {...} groups are not supported)")
@@ -180,11 +184,13 @@ def main(argv: list[str] | None = None) -> None:
 
     # Conditional: k_describe (PRD §13 open)
     if _SHIP_DESCRIBE and "describe" in allowed:
-        @app.tool(name="k_describe", description="k_describe: resource: Resource type; name: Resource name; namespace: Namespace")
+        @app.tool(name="k_describe", description="k_describe: resource: Resource type; name: Resource name; namespace: Namespace; grep: Filter describe output lines by regex; grep_ignore_case: Case-insensitive grep matching")
         def describe(context: str, resource: str, name: str,
-                     namespace: str | None = None) -> dict[str, Any]:
+                     namespace: str | None = None,
+                     grep: str | None = None, grep_ignore_case: bool = False) -> dict[str, Any]:
             return _dispatch("describe", handle_describe, context, discovery_cache, allow_namespaces,
-                             resource=resource, name=name, namespace=namespace)
+                             resource=resource, name=name, namespace=namespace,
+                             grep=grep, grep_ignore_case=grep_ignore_case)
 
     # Conditional: k_exec (admin only, PRD §13 open)
     if _SHIP_EXEC and access_level == AccessLevel.ADMIN:

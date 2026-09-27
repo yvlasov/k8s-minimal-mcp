@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..resolution import resolve, validate, DiscoveryCache
+from ..resolution.grep_filter import compile_grep_pattern, filter_lines
 from ..kubectl.runner import run_kubectl_checked
 from ..output import bound_logs, envelope
 
@@ -31,9 +32,20 @@ def handle_logs(
     since: str | None = None,
     since_time: str | None = None,
     limit_bytes: int | None = None,
+    grep: str | None = None,
+    grep_ignore_case: bool = False,
     discovery_cache: DiscoveryCache | None = None,
 ) -> dict[str, Any]:
     """Handle a k_logs call."""
+    # Fail-fast: compile grep pattern before resolve()
+    grep_compiled = None
+    if grep:
+        grep_result = compile_grep_pattern(grep, ignore_case=grep_ignore_case)
+        if isinstance(grep_result, dict) and "error" in grep_result:
+            from ..errors import invalid_grep_pattern
+            return envelope(invalid_grep_pattern(context, grep, detail=grep_result["error"]), context, "k_logs", success=False)
+        grep_compiled = grep_result
+
     # Pods are always in the core table
     res = resolve(context, "pods", discovery_cache=discovery_cache)
     if isinstance(res, dict) and "error" in res:
@@ -74,5 +86,11 @@ def handle_logs(
 
     # Apply bounding (R10 + R4)
     bounded = bound_logs(result["stdout"], tail=effective_tail, limit_bytes=effective_limit_bytes)
+
+    # Apply grep filter to the text field only, before _bound/_filtered metadata assembly
+    if grep_compiled is not None:
+        filtered_text, matched, total = filter_lines(bounded["logs"], grep_compiled)  # type: ignore[arg-type]
+        bounded["logs"] = filtered_text
+        bounded["_filtered"] = {"matched": matched, "total": total}
 
     return envelope(bounded, context, "k_logs", success=True)

@@ -29,6 +29,7 @@ ERROR_INVALID_OUTPUT = "invalid_output"
 ERROR_INVALID_SELECTOR = "invalid_selector"
 ERROR_DISCOVERY_FAILURE = "discovery_failure"
 ERROR_INVALID_JSONPATH_TEMPLATE = "invalid_jsonpath_template"
+ERROR_INVALID_GREP_PATTERN = "invalid_grep_pattern"
 ERROR_UNSAFE_PATH = "unsafe_path"
 ERROR_FILE_EXISTS = "file_exists"
 ERROR_FILE_WRITE_FAILED = "file_write_failed"
@@ -218,6 +219,20 @@ def invalid_jsonpath_template(
     """k_get/k_apply/k_patch: jsonpath_template contains nested braces (invalid syntax)."""
     out = _base(context, ERROR_INVALID_JSONPATH_TEMPLATE)
     out["jsonpath_template"] = template
+    if detail:
+        out["detail"] = detail
+    return out
+
+
+def invalid_grep_pattern(
+    context: str,
+    pattern: str,
+    *,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    """k_logs/k_describe/k_get: grep pattern has invalid regex syntax."""
+    out = _base(context, ERROR_INVALID_GREP_PATTERN)
+    out["grep"] = pattern
     if detail:
         out["detail"] = detail
     return out

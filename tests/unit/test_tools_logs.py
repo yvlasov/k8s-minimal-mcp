@@ -193,3 +193,81 @@ class TestHandleLogs:
 
         assert result["success"] is False
         assert result["error"] == "pod_not_found"
+
+    @patch("src.k8s_mcp.tools.logs.resolve")
+    @patch("src.k8s_mcp.tools.logs.run_kubectl_checked")
+    def test_logs_grep_filters_matching_lines(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "line 1\nerror here\nline 3\nerror again"}
+
+        result = handle_logs("test-context", "mypod", namespace="default", grep="error")
+
+        assert result["success"] is True
+        assert result["data"]["logs"] == "error here\nerror again"
+        assert result["data"]["_filtered"]["matched"] == 2
+        assert result["data"]["_filtered"]["total"] == 4
+
+    @patch("src.k8s_mcp.tools.logs.resolve")
+    @patch("src.k8s_mcp.tools.logs.run_kubectl_checked")
+    def test_logs_grep_no_matches(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "line 1\nline 2"}
+
+        result = handle_logs("test-context", "mypod", namespace="default", grep="notfound")
+
+        assert result["success"] is True
+        assert result["data"]["logs"] == ""
+        assert result["data"]["_filtered"]["matched"] == 0
+        assert result["data"]["_filtered"]["total"] == 2
+
+    @patch("src.k8s_mcp.tools.logs.resolve")
+    def test_logs_grep_invalid_pattern_fails(self, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+
+        result = handle_logs("test-context", "mypod", namespace="default", grep="[invalid")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_grep_pattern"
+        assert result["grep"] == "[invalid"
+
+    @patch("src.k8s_mcp.tools.logs.resolve")
+    @patch("src.k8s_mcp.tools.logs.run_kubectl_checked")
+    def test_logs_grep_ignore_case(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "ERROR here\nwarning\nERROR again"}
+
+        result = handle_logs("test-context", "mypod", namespace="default", grep="error", grep_ignore_case=True)
+
+        assert result["success"] is True
+        assert result["data"]["logs"] == "ERROR here\nERROR again"
+        assert result["data"]["_filtered"]["matched"] == 2
+
+    @patch("src.k8s_mcp.tools.logs.resolve")
+    @patch("src.k8s_mcp.tools.logs.run_kubectl_checked")
+    def test_logs_grep_preserves_bound_metadata(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "\n".join([f"line {i}" for i in range(150)])}
+
+        result = handle_logs("test-context", "mypod", namespace="default", tail=100, grep="^line 5[0-9]$")
+
+        assert result["success"] is True
+        assert "_bound" in result["data"]
+        assert result["data"]["_bound"]["truncated"] is True
+        assert result["data"]["_bound"]["tail"] == 100
+        assert "_filtered" in result["data"]
+        assert result["data"]["_filtered"]["matched"] == 10
+        assert result["data"]["_filtered"]["total"] == 100
+
+    @patch("src.k8s_mcp.tools.logs.resolve")
+    @patch("src.k8s_mcp.tools.logs.run_kubectl_checked")
+    def test_logs_grep_does_not_filter_bound_message(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "x" * 1024}
+
+        result = handle_logs("test-context", "mypod", namespace="default", limit_bytes=1024, grep="zzznotmatching")
+
+        assert result["success"] is True
+        assert result["data"]["_bound"]["truncated"] is True
+        assert "message" in result["data"]["_bound"]
+        assert result["data"]["logs"] == ""
+        assert result["data"]["_filtered"]["matched"] == 0

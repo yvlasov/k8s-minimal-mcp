@@ -367,3 +367,65 @@ class TestHandleGetFullyQualifiedResource:
         assert result["success"] is True
         args = mock_run.call_args[0][1]
         assert args[1] == "pods"
+
+
+class TestHandleGetGrep:
+    @patch("src.k8s_mcp.tools.get.resolve")
+    @patch("src.k8s_mcp.tools.get.run_kubectl_checked")
+    def test_get_wide_grep_filters_output(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "NAME    READY   STATUS    RESTARTS   AGE\npod1  1/1     Running   0          5m\npod2  0/1     Error     0          2m"}
+
+        result = handle_get("test-context", "pods", namespace="default", output="wide", grep="Error")
+
+        assert result["success"] is True
+        assert "Error" in result["data"]["output"]
+        assert "Running" not in result["data"]["output"]
+        assert result["data"]["_filtered"]["matched"] == 1
+        assert result["data"]["_filtered"]["total"] == 3
+
+    @patch("src.k8s_mcp.tools.get.resolve")
+    @patch("src.k8s_mcp.tools.get.run_kubectl_checked")
+    def test_get_wide_grep_no_matches(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "NAME    READY   STATUS    RESTARTS   AGE\npod1  1/1     Running   0          5m"}
+
+        result = handle_get("test-context", "pods", namespace="default", output="wide", grep="zzznotfound")
+
+        assert result["success"] is True
+        assert result["data"]["output"] == ""
+        assert result["data"]["_filtered"]["matched"] == 0
+        assert result["data"]["_filtered"]["total"] == 2
+
+    @patch("src.k8s_mcp.tools.get.resolve")
+    def test_get_wide_grep_invalid_pattern_fails(self, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+
+        result = handle_get("test-context", "pods", namespace="default", output="wide", grep="[invalid")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_grep_pattern"
+
+    @patch("src.k8s_mcp.tools.get.resolve")
+    @patch("src.k8s_mcp.tools.get.run_kubectl_checked")
+    def test_get_wide_grep_ignore_case(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "NAME    READY   STATUS    RESTARTS   AGE\npod1  1/1     RUNNING   0          5m"}
+
+        result = handle_get("test-context", "pods", namespace="default", output="wide", grep="running", grep_ignore_case=True)
+
+        assert result["success"] is True
+        assert "RUNNING" in result["data"]["output"]
+        assert result["data"]["_filtered"]["matched"] == 1
+
+    @patch("src.k8s_mcp.tools.get.resolve")
+    @patch("src.k8s_mcp.tools.get.run_kubectl_checked")
+    def test_get_non_wide_output_ignores_grep(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": '{"items": [{"metadata": {"name": "pod1"}}]}'}
+
+        result = handle_get("test-context", "pods", namespace="default", grep="anything")
+
+        assert result["success"] is True
+        assert "_filtered" not in result["data"]
+        assert "items" in result["data"]

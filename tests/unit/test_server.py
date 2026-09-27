@@ -74,6 +74,8 @@ _TOOL_DEFINITIONS: list[tuple[str, str, dict]] = [
             "output": None,
             "jsonpath_template": None,
             "annotation_selector": None,
+            "grep": None,
+            "grep_ignore_case": False,
         },
     ),
     (
@@ -111,6 +113,8 @@ _TOOL_DEFINITIONS: list[tuple[str, str, dict]] = [
             "since": None,
             "since_time": None,
             "limit_bytes": None,
+            "grep": None,
+            "grep_ignore_case": False,
         },
     ),
     (
@@ -157,6 +161,8 @@ _TOOL_DEFINITIONS: list[tuple[str, str, dict]] = [
             "resource": "pods",
             "name": "my-pod",
             "namespace": "default",
+            "grep": None,
+            "grep_ignore_case": False,
         },
     ),
     (

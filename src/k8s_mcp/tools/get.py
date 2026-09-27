@@ -16,6 +16,7 @@ from typing import Any
 
 from ..resolution import resolve, validate, DiscoveryCache
 from ..resolution.annotation_selector import parse_annotation_selector, matches_annotation_selector
+from ..resolution.grep_filter import compile_grep_pattern, filter_lines
 from ..resolution.jsonpath_validation import check_nested_braces
 from ..kubectl.runner import run_kubectl_checked
 from ..output import prune, bound_get_names, apply_output_format, envelope
@@ -34,6 +35,8 @@ def handle_get(
     output: str | None = None,
     jsonpath_template: str | None = None,
     annotation_selector: str | None = None,
+    grep: str | None = None,
+    grep_ignore_case: bool = False,
     discovery_cache: DiscoveryCache | None = None,
 ) -> dict[str, Any]:
     """Handle a k_get call."""
@@ -67,6 +70,15 @@ def handle_get(
                 invalid_jsonpath_template(context, jsonpath_template, detail=nested_err),
                 context, "k_get", success=False,
             )
+
+    # Fail-fast: compile grep pattern before resolve()
+    grep_compiled = None
+    if grep:
+        grep_result = compile_grep_pattern(grep, ignore_case=grep_ignore_case)
+        if isinstance(grep_result, dict) and "error" in grep_result:
+            from ..errors import invalid_grep_pattern
+            return envelope(invalid_grep_pattern(context, grep, detail=grep_result["error"]), context, "k_get", success=False)
+        grep_compiled = grep_result
 
     # Fail-fast: parse annotation_selector before resolve()
     parsed_selector: list[Any] | None = None
@@ -119,7 +131,12 @@ def handle_get(
         result = run_kubectl_checked(context, args, output_format="wide")
         if "error" in result:
             return envelope(result, context, "k_get", success=False)
-        return envelope({"output": result["stdout"]}, context, "k_get", success=True)
+        response: dict[str, Any] = {"output": result["stdout"]}
+        if grep_compiled is not None:
+            filtered_text, matched, total = filter_lines(result["stdout"], grep_compiled)  # type: ignore[arg-type]
+            response["output"] = filtered_text
+            response["_filtered"] = {"matched": matched, "total": total}
+        return envelope(response, context, "k_get", success=True)
 
     result = run_kubectl_checked(context, args)
     if "error" in result:

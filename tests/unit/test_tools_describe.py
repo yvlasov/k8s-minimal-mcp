@@ -124,3 +124,50 @@ class TestHandleDescribeFullyQualifiedResource:
         assert result["success"] is True
         args = mock_run.call_args[0][1]
         assert args == ["describe", "pods", "mypod", "-n", "default"]
+
+    @patch("src.k8s_mcp.tools.describe.resolve")
+    @patch("src.k8s_mcp.tools.describe.run_kubectl_checked")
+    def test_describe_grep_filters_output(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "Name:         mypod\nNamespace:    default\nStatus:       Running"}
+
+        result = handle_describe("test-context", "pods", name="mypod", namespace="default", grep="Namespace")
+
+        assert result["success"] is True
+        assert result["data"]["output"] == "Namespace:    default"
+        assert result["data"]["_filtered"]["matched"] == 1
+        assert result["data"]["_filtered"]["total"] == 3
+
+    @patch("src.k8s_mcp.tools.describe.resolve")
+    @patch("src.k8s_mcp.tools.describe.run_kubectl_checked")
+    def test_describe_grep_no_matches(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "Name:         mypod\nNamespace:    default"}
+
+        result = handle_describe("test-context", "pods", name="mypod", namespace="default", grep="zzznotfound")
+
+        assert result["success"] is True
+        assert result["data"]["output"] == ""
+        assert result["data"]["_filtered"]["matched"] == 0
+
+    @patch("src.k8s_mcp.tools.describe.resolve")
+    def test_describe_grep_invalid_pattern_fails(self, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+
+        result = handle_describe("test-context", "pods", name="mypod", namespace="default", grep="[invalid")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_grep_pattern"
+
+    @patch("src.k8s_mcp.tools.describe.resolve")
+    @patch("src.k8s_mcp.tools.describe.run_kubectl_checked")
+    def test_describe_grep_ignore_case(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "NAME:         mypod\nNamespace:    default"}
+
+        result = handle_describe("test-context", "pods", name="mypod", namespace="default", grep="name", grep_ignore_case=True)
+
+        assert result["success"] is True
+        assert "NAME:         mypod" in result["data"]["output"]
+        assert "Namespace:    default" in result["data"]["output"]
+        assert result["data"]["_filtered"]["matched"] == 2
