@@ -62,6 +62,16 @@ Full suite: 412 passed, 9 skipped. `mypy src` — success. `ruff check src` — 
 
 Comitted `TODO`.
 
+### FR17 — Pin `fastmcp` to a tested version range
+
+Changed `"fastmcp>=0.2"` to `"fastmcp>=4.0,<5"` in `pyproject.toml` dependencies. The previous
+unbounded constraint was provably wrong: Issue 13's history shows crashes caused by `fastmcp` API
+differences between versions (`add_tool()` vs. `.tool()`; `**kwargs`-shaped tool schemas rejected
+starting at some version at/before `4.0.4`). A fresh `uv sync` today could still resolve to an
+old `fastmcp` version reproducing Issue 13's crash. Current installed/tested version is `4.0.4`.
+
+Comitted `TODO`.
+
 ### FR14 — `grep` — text-filtering for `k_logs`/`k_describe`/`k_get output=wide`
 
 Server-side regex filtering for unstructured-text tool output. New `grep: str | None` and

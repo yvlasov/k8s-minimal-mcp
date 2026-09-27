@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Iurii Vlasov" }]
 dependencies = [
-    "fastmcp>=0.2",
+    "fastmcp>=4.0,<5",
     "pydantic>=2.6",
     "pyyaml>=6.0",
 ]
