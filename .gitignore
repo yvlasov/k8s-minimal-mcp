@@ -51,7 +51,6 @@ uv.lock
 *.key
 *.crt
 kubeconfig
-kubeconfig.*
 *.kubeconfig
 .kube/
 credentials.json
