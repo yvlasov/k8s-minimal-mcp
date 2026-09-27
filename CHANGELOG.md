@@ -40,7 +40,7 @@ New tests: `test_jsonpath_with_output_json_ignored` (get), `test_jsonpath_with_o
 
 Full suite: 412 passed, 9 skipped.
 
-Committed `e7a3f6f`.
+Committed `4e5a6fb`.
 
 ### FR14 — `grep` — text-filtering for `k_logs`/`k_describe`/`k_get output=wide`
 
