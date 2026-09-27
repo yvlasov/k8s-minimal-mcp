@@ -12,11 +12,11 @@ from __future__ import annotations
 import re
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
+from ..errors import discovery_failure
 from ..kubectl.runner import run_kubectl
-from ..errors import kubectl_failure, discovery_failure
 from .models import ResourceMeta
 
 
@@ -92,10 +92,12 @@ def _parse_api_resources(output: str) -> list[ResourceMeta]:
     """Parse `kubectl api-resources -o wide` tabular output into ResourceMeta list.
 
     Expected format (space/tab-aligned, header-driven column mapping):
-      NAME                      SHORTNAMES   APIVERSION             NAMESPACED   KIND                      VERBS                                       CATEGORIES
-      pods                      po           v1                     true         Pod                       [create delete get list patch update watch]   [basic]
-      deployments               deploy       apps/v1                true         Deployment                [create delete get list patch update watch]   [basic]
-      ciliumnetworkpolicies     ciliumnet    cilium.io/v2           true         CiliumNetworkPolicy       [create delete get list patch update watch]
+      NAME  SHORTNAMES  APIVERSION  NAMESPACED  KIND  VERBS  CATEGORIES
+      (see kubectl api-resources -o wide for full column layout)
+    Example rows:
+      pods  po  v1  true  Pod  [create delete get list patch update watch]  [basic]
+      deployments  deploy  apps/v1  true  Deployment  [create delete get list patch update watch]  [basic]
+      ciliumnetworkpolicies  ciliumnet  cilium.io/v2  true  CiliumNetworkPolicy  [create delete get list patch update watch]
     """
     resources: list[ResourceMeta] = []
     lines = output.strip().splitlines()

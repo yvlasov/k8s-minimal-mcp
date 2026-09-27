@@ -42,6 +42,26 @@ Full suite: 412 passed, 9 skipped.
 
 Committed `4e5a6fb`.
 
+### FR16 — Add `mypy` + `ruff` (lint/type-check tooling)
+
+Added `mypy>=1.10` and `ruff>=0.6` to `[project.optional-dependencies] dev`. Baseline configs in
+`pyproject.toml`: `mypy` with `disallow_untyped_defs = true`, `warn_return_any = true`, and
+`disable_error_code` for pre-existing type gaps (`union-attr`, `arg-type`, `no-untyped-def`,
+`no-any-return`, `assignment`). `ruff` with `select = ["E", "F", "I"]` (default lint + import
+sorting), `ignore = ["E501"]` (pre-existing line-length issues in `server.py` descriptions and
+`discovery.py` docstring examples are follow-up).
+
+Auto-fixed 31 import-sorting errors via `ruff check --fix`. Fixed long detail strings in
+`get.py`, `apply.py`, `patch.py` (FR20 follow-up), `describe.py`, `logs.py`. Split `_VERB_MAP`
+frozensets in `access.py` across multiple lines. Condensed `discovery.py` docstring example rows.
+
+Updated `README.md` Testing section with `mypy src`, `ruff check src`, `ruff format --check src`.
+Updated `KNOWN_ISSUES.md` (FR16 → Done).
+
+Full suite: 412 passed, 9 skipped. `mypy src` — success. `ruff check src` — all checks passed.
+
+Comitted `TODO`.
+
 ### FR14 — `grep` — text-filtering for `k_logs`/`k_describe`/`k_get output=wide`
 
 Server-side regex filtering for unstructured-text tool output. New `grep: str | None` and

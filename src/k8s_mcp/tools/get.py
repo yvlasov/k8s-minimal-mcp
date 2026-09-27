@@ -14,13 +14,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..resolution import resolve, validate, DiscoveryCache
-from ..resolution.annotation_selector import parse_annotation_selector, matches_annotation_selector
+from ..errors import invalid_jsonpath_template, invalid_output, invalid_selector
+from ..kubectl.runner import run_kubectl_checked
+from ..output import apply_output_format, bound_get_names, envelope, prune
+from ..resolution import DiscoveryCache, resolve, validate
+from ..resolution.annotation_selector import matches_annotation_selector, parse_annotation_selector
 from ..resolution.grep_filter import compile_grep_pattern, filter_lines
 from ..resolution.jsonpath_validation import check_nested_braces
-from ..kubectl.runner import run_kubectl_checked
-from ..output import prune, bound_get_names, apply_output_format, envelope
-from ..errors import unknown_context, invalid_output, invalid_selector, invalid_jsonpath_template
 
 
 def handle_get(
@@ -43,7 +43,14 @@ def handle_get(
     # Fail-fast: output=jsonpath without jsonpath parameter
     if output == "jsonpath" and not jsonpath:
         return envelope(
-            invalid_output(context, output, detail="'jsonpath' is no longer a valid output value — set the jsonpath parameter directly instead, e.g. jsonpath='{.metadata.name}'. output does not need to be set when jsonpath is."),
+            invalid_output(
+                context, output,
+                detail=(
+                    "'jsonpath' is no longer a valid output value — set the jsonpath "
+                    "parameter directly instead, e.g. jsonpath='{.metadata.name}'. "
+                    "output does not need to be set when jsonpath is."
+                ),
+            ),
             context, "k_get", success=False,
         )
 
@@ -58,7 +65,10 @@ def handle_get(
     # text output — there is no structured JSON left to filter)
     if annotation_selector and output == "wide":
         return envelope(
-            invalid_selector(context, annotation_selector, detail="cannot combine annotation_selector with output=wide"),
+            invalid_selector(
+                context, annotation_selector,
+                detail="cannot combine annotation_selector with output=wide",
+            ),
             context, "k_get", success=False,
         )
 
@@ -77,7 +87,10 @@ def handle_get(
         grep_result = compile_grep_pattern(grep, ignore_case=grep_ignore_case)
         if isinstance(grep_result, dict) and "error" in grep_result:
             from ..errors import invalid_grep_pattern
-            return envelope(invalid_grep_pattern(context, grep, detail=grep_result["error"]), context, "k_get", success=False)
+            return envelope(
+                invalid_grep_pattern(context, grep, detail=grep_result["error"]),
+                context, "k_get", success=False,
+            )
         grep_compiled = grep_result
 
     # Fail-fast: parse annotation_selector before resolve()
@@ -99,7 +112,11 @@ def handle_get(
     resource_meta = res
 
     # Pre-execution validation (R8)
-    validation = validate(resource_meta, "get", namespace if not all_namespaces else None, all_namespaces=all_namespaces)
+    validation = validate(
+        resource_meta, "get",
+        namespace if not all_namespaces else None,
+        all_namespaces=all_namespaces,
+    )
     if validation:
         validation["context"] = context
         return envelope(validation, context, "k_get", success=False)

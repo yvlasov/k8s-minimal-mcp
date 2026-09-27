@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # ── Error codes ──────────────────────────────────────────────────────────────
 
 ERROR_AMBIGUOUS_RESOURCE = "ambiguous_resource"

@@ -128,6 +128,9 @@ Core resources (pods, deployments, services, etc.) resolve from a static table. 
 ```bash
 uv sync --extra dev
 PYTHONPATH=. uv run pytest -v
+uv run mypy src
+uv run ruff check src
+uv run ruff format --check src
 ```
 
 ## Architecture

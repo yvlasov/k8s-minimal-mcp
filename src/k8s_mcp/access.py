@@ -22,9 +22,18 @@ class AccessLevel(str, Enum):
 
 
 _VERB_MAP: dict[AccessLevel, FrozenSet[str]] = {
-    AccessLevel.READONLY: frozenset({"get", "logs", "describe", "list_resources", "auth_can_i"}),
-    AccessLevel.READWRITE: frozenset({"get", "logs", "describe", "list_resources", "auth_can_i", "apply", "patch", "delete"}),
-    AccessLevel.ADMIN: frozenset({"get", "logs", "describe", "list_resources", "auth_can_i", "apply", "patch", "delete", "exec", "get_secret_to_file", "get_helm_release"}),
+    AccessLevel.READONLY: frozenset({
+        "get", "logs", "describe", "list_resources", "auth_can_i",
+    }),
+    AccessLevel.READWRITE: frozenset({
+        "get", "logs", "describe", "list_resources", "auth_can_i",
+        "apply", "patch", "delete",
+    }),
+    AccessLevel.ADMIN: frozenset({
+        "get", "logs", "describe", "list_resources", "auth_can_i",
+        "apply", "patch", "delete", "exec",
+        "get_secret_to_file", "get_helm_release",
+    }),
 }
 
 

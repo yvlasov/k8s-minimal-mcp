@@ -11,9 +11,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..resolution import resolve, validate, DiscoveryCache
 from ..kubectl.runner import run_kubectl_checked
-from ..output import prune, envelope
+from ..output import envelope, prune
+from ..resolution import DiscoveryCache, resolve, validate
 
 
 def handle_delete(

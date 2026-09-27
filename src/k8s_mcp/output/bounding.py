@@ -10,7 +10,6 @@ so the model can decide whether to re-request unbounded.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 

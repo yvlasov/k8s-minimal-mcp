@@ -6,10 +6,9 @@ Called once at startup. Returns list[ResourceMeta].
 from __future__ import annotations
 
 import importlib.resources
+import tomllib
 from pathlib import Path
 from typing import Any
-
-import tomllib
 
 from .models import ResourceMeta
 

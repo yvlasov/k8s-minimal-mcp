@@ -14,15 +14,15 @@ from __future__ import annotations
 import difflib
 from typing import Any, cast
 
+from ..errors import (
+    ambiguous_resource,
+    namespace_invalid,
+    unknown_resource,
+    verb_unsupported,
+)
 from .core_table import load_core_table
 from .discovery import DiscoveryCache
 from .models import ResourceMeta
-from ..errors import (
-    ambiguous_resource,
-    unknown_resource,
-    verb_unsupported,
-    namespace_invalid,
-)
 
 # Lazy-loaded core table
 _core_table: list[ResourceMeta] | None = None

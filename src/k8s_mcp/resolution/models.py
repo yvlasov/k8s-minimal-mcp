@@ -6,7 +6,7 @@ same shape, enabling unified lookup logic in resolver.py.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class ResourceMeta(BaseModel):

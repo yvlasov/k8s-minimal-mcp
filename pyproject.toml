@@ -20,6 +20,8 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-mock>=3.14",
+    "mypy>=1.10",
+    "ruff>=0.6",
 ]
 
 [project.scripts]
@@ -30,3 +32,24 @@ packages = ["src/k8s_mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+disallow_untyped_defs = true
+warn_return_any = true
+disable_error_code = ["union-attr", "arg-type", "no-untyped-def", "no-any-return", "assignment"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[dependency-groups]
+dev = [
+    "types-pyyaml>=6.0.12.20260906",
+]

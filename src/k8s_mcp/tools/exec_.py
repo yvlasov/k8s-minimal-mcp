@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..resolution import resolve, validate, DiscoveryCache
+from ..errors import exec_failed
 from ..kubectl.runner import run_kubectl_checked
 from ..output import envelope
-from ..errors import exec_failed
+from ..resolution import DiscoveryCache, resolve, validate
 
 
 def handle_exec(

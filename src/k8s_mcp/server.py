@@ -14,27 +14,26 @@ Namespace allowlist is enforced per-call in tools, not at registration.
 from __future__ import annotations
 
 import logging
-import sys
 from typing import Any
 
 from fastmcp import FastMCP
 
-from .access import AccessLevel, allowed_verbs, tool_for_verb
+from .access import AccessLevel, allowed_verbs
 from .cli import parse_args, resolve_access_level, resolve_allow_namespaces
 from .resolution import DiscoveryCache
 from .tools import (
-    handle_get,
-    handle_logs,
     handle_apply,
-    handle_patch,
-    handle_delete,
-    handle_exec,
-    handle_list_contexts,
-    handle_describe,
-    handle_list_resources,
-    handle_get_secret_to_file,
-    handle_get_helm_release,
     handle_auth_can_i,
+    handle_delete,
+    handle_describe,
+    handle_exec,
+    handle_get,
+    handle_get_helm_release,
+    handle_get_secret_to_file,
+    handle_list_contexts,
+    handle_list_resources,
+    handle_logs,
+    handle_patch,
 )
 
 logger = logging.getLogger("k8s_mcp")

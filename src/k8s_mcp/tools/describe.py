@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..resolution import resolve, validate, DiscoveryCache
-from ..resolution.grep_filter import compile_grep_pattern, filter_lines
 from ..kubectl.runner import run_kubectl_checked
 from ..output import envelope
+from ..resolution import DiscoveryCache, resolve, validate
+from ..resolution.grep_filter import compile_grep_pattern, filter_lines
 
 
 def handle_describe(
@@ -32,7 +32,10 @@ def handle_describe(
         grep_result = compile_grep_pattern(grep, ignore_case=grep_ignore_case)
         if isinstance(grep_result, dict) and "error" in grep_result:
             from ..errors import invalid_grep_pattern
-            return envelope(invalid_grep_pattern(context, grep, detail=grep_result["error"]), context, "k_describe", success=False)
+            return envelope(
+                invalid_grep_pattern(context, grep, detail=grep_result["error"]),
+                context, "k_describe", success=False,
+            )
         grep_compiled = grep_result
 
     # Resolve resource → GVK

@@ -94,8 +94,8 @@ def handle_auth_can_i(
     result = run_kubectl(context, args, output_format=None)
 
     if "error" in result:
-        from ..output import envelope
         from ..errors import kubectl_failure
+        from ..output import envelope
         err = kubectl_failure(context, " ".join(result.get("command", args)), result["error"])
         return envelope(err, context, "k_auth_can_i", success=False)
 
@@ -106,8 +106,8 @@ def handle_auth_can_i(
 
     if list_all:
         if returncode != 0:
-            from ..output import envelope
             from ..errors import kubectl_failure
+            from ..output import envelope
             err = kubectl_failure(context, " ".join(command), stderr)
             return envelope(err, context, "k_auth_can_i", success=False)
         permissions = _parse_list_output(stdout)
@@ -121,7 +121,7 @@ def handle_auth_can_i(
         from ..output import envelope
         return envelope({"allowed": False, "command": command}, context, "k_auth_can_i", success=True)
     else:
-        from ..output import envelope
         from ..errors import kubectl_failure
+        from ..output import envelope
         err = kubectl_failure(context, " ".join(command), stderr, exit_code=returncode)
         return envelope(err, context, "k_auth_can_i", success=False)

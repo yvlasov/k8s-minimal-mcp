@@ -11,21 +11,20 @@ Response states dry_run status.
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
-import os
-from ..resolution import resolve, validate, DiscoveryCache
-from ..resolution.jsonpath_validation import check_nested_braces
-from ..kubectl.runner import run_kubectl_checked
-from ..output import prune, envelope, apply_output_format
 from ..errors import (
-    unknown_resource,
+    file_read_failed,
+    invalid_jsonpath_template,
     invalid_manifest,
     invalid_output,
-    invalid_jsonpath_template,
     unsafe_path,
-    file_read_failed,
 )
+from ..kubectl.runner import run_kubectl_checked
+from ..output import apply_output_format, envelope, prune
+from ..resolution import DiscoveryCache, resolve, validate
+from ..resolution.jsonpath_validation import check_nested_braces
 
 
 def _parse_manifest(manifest: str) -> tuple[dict[str, Any], str | None]:
@@ -98,7 +97,14 @@ def handle_apply(
     # Fail-fast: output=jsonpath is no longer valid — jsonpath param alone is the trigger
     if output == "jsonpath" and not jsonpath:
         return envelope(
-            invalid_output(context, output, detail="'jsonpath' is no longer a valid output value — set the jsonpath parameter directly instead, e.g. jsonpath='{.metadata.name}'. output does not need to be set when jsonpath is."),
+            invalid_output(
+                context, output,
+                detail=(
+                    "'jsonpath' is no longer a valid output value — set the jsonpath "
+                    "parameter directly instead, e.g. jsonpath='{.metadata.name}'. "
+                    "output does not need to be set when jsonpath is."
+                ),
+            ),
             context, "k_apply", success=False,
         )
 
@@ -115,7 +121,13 @@ def handle_apply(
     # Only fires when jsonpath is not set — jsonpath unconditionally overrides output (FR20)
     if not jsonpath and output == "wide":
         return envelope(
-            invalid_output(context, output, detail="output=wide has no meaning for k_apply — kubectl's -o wide is a get-only list-formatting flag"),
+            invalid_output(
+                context, output,
+                detail=(
+                    "output=wide has no meaning for k_apply — "
+                    "kubectl's -o wide is a get-only list-formatting flag"
+                ),
+            ),
             context, "k_apply", success=False,
         )
 

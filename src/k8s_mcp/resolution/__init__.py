@@ -8,9 +8,9 @@ Exports:
   - validate() — pre-execution validation (R8)
 """
 
-from .models import ResourceMeta
 from .core_table import load_core_table
 from .discovery import DiscoveryCache
+from .models import ResourceMeta
 from .resolver import resolve, validate
 
 __all__ = [

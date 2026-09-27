@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
 # Regex for a single term: key=value, key!=value, or bare key
 # Key: starts with letter/digit, may contain letters/digits/-/_/.
 # Value: any non-comma characters (simplified — real k8s allows more)

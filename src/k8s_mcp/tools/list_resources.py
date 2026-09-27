@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..resolution.discovery import DiscoveryCache
 from ..output import envelope
+from ..resolution.discovery import DiscoveryCache
 
 
 def _filter_resources(

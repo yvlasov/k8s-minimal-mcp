@@ -4,9 +4,9 @@ Pipeline: pruning → bounding → envelope
 Applied uniformly at the output boundary, not per-tool.
 """
 
-from .pruning import prune
-from .bounding import bound_get_names, bound_logs, apply_output_format
+from .bounding import apply_output_format, bound_get_names, bound_logs
 from .envelope import envelope, envelope_list_contexts
+from .pruning import prune
 
 __all__ = [
     "prune",
