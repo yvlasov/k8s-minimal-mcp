@@ -19,6 +19,7 @@ from ..kubectl.runner import run_kubectl_checked
 from ..output import bound_logs, envelope
 
 DEFAULT_LOG_LIMIT_BYTES = 8192
+DEFAULT_LOG_TAIL = 100
 
 
 def handle_logs(
@@ -60,7 +61,7 @@ def handle_logs(
         return envelope(validation, context, "k_logs", success=False)
 
     # Apply defaults (PRD §6, R4)
-    effective_tail = tail if tail is not None else 100
+    effective_tail = tail if tail is not None else DEFAULT_LOG_TAIL
     effective_limit_bytes = limit_bytes if limit_bytes is not None else DEFAULT_LOG_LIMIT_BYTES
 
     # Build kubectl args

@@ -26,6 +26,24 @@ and `_TOOL_DEFINITIONS` updated in `test_server.py` for logs/describe/get. Full 
 
 Committed `b2e446f`.
 
+### FR15 — Typing/naming consistency cleanup
+
+Two small deviations from the project's own stated conventions (Rule 9: strong typing, single
+source of truth for defaults):
+
+- `auth_can_i.py`'s `discovery_cache: object | None = None` → `DiscoveryCache | None = None`,
+  matching every other handler's signature (`get_helm_release.py:87`'s precedent, among others).
+  `object` type-checks nothing; a caller could pass any value with no static or runtime check.
+- `logs.py`'s `tail` default (`100`) was an inline literal at
+  `effective_tail = tail if tail is not None else 100`, while `limit_bytes`'s default used a
+  named module-level constant (`DEFAULT_LOG_LIMIT_BYTES = 8192`). Extracted
+  `DEFAULT_LOG_TAIL = 100` for consistency — both defaults are equally part of the tool's
+  documented contract (PRD §6) and should be equally easy to find/grep for.
+
+Zero behavior change. Full suite: 403 passed.
+
+Committed `<hash>`.
+
 ### FR13 — `k_auth_can_i`
 
 Thin wrapper over `kubectl auth can-i` (RBAC effective-permission checks). Single-check and

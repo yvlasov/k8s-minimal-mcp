@@ -47,7 +47,7 @@ implemented" label written before it was actually true). A Status line may not c
 | FR12 | `k_get_helm_release` | Done — see Issue 39 (resolved) | PRD §15 FR12, SPEC §8 FR12 |
 | FR13 | `k_auth_can_i` | Done — see Issue 40 (resolved) | PRD §15 FR13, SPEC §8 FR13 |
 | FR14 | `grep` — text-filtering for `k_logs`/`k_describe`/`k_get output=wide` | Done — see CHANGELOG.md | PRD §15 FR14, SPEC §8 FR14 |
-| FR15 | Typing/naming consistency cleanup (`auth_can_i.py`'s `discovery_cache`, `k_logs`'s tail default) | Proposed, plan ready | PRD §15 FR15 |
+| FR15 | Typing/naming consistency cleanup (`auth_can_i.py`'s `discovery_cache`, `k_logs`'s tail default) | Done — see CHANGELOG.md | PRD §15 FR15 |
 | FR16 | Add `mypy` + `ruff` (lint/type-check tooling) | Proposed, plan ready | PRD §15 FR16 |
 | FR17 | Pin `fastmcp` to a tested version range (currently unbounded `>=0.2`, ties to Issue 13) | Proposed, plan ready | PRD §15 FR17 |
 | FR18 | Add CI (GitHub Actions) running the test suite on push/PR | Proposed, plan ready | PRD §15 FR18 |

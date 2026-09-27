@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..kubectl.runner import run_kubectl
+from ..resolution import DiscoveryCache
 
 
 def _build_auth_args(
@@ -81,7 +82,7 @@ def handle_auth_can_i(
     as_group: list[str] | None = None,
     list_all: bool = False,
     *,
-    discovery_cache: object | None = None,
+    discovery_cache: DiscoveryCache | None = None,
 ) -> dict[str, Any]:
     """Handle k_auth_can_i: single-check or --list mode.
 
