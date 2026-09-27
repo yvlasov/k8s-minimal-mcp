@@ -42,7 +42,7 @@ source of truth for defaults):
 
 Zero behavior change. Full suite: 403 passed.
 
-Committed `<hash>`.
+Committed `8fbb110`.
 
 ### FR13 — `k_auth_can_i`
 
