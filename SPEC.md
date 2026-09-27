@@ -255,6 +255,12 @@ an error (`invalid_output`).
 - **`server.py`:** `"jsonpath"` added to the `output` enum in the tool description on all
   three wrappers; `output`/`jsonpath_template` as explicit typed parameters.
 
+**Superseded by FR20:** `jsonpath_template` is renamed to `jsonpath`, `"jsonpath"` is dropped
+from `output`'s documented enum, and the trigger condition changes from "template truthy,
+unless `output` says otherwise" to "template truthy, unconditionally, `output` fully ignored."
+This section stands as the as-originally-shipped record; implement from FR20 below, not this
+section, for any future work in this area.
+
 ### FR2. `annotation_selector` for `k_get`
 
 Note: a dedicated `k_events` tool was considered alongside this (PRD §11) and rejected —
@@ -373,6 +379,10 @@ loader reads every `[[resource]]` entry generically.
   `output == "jsonpath"` fail-fast, before `resolve()`.
 - **`server.py`:** `jsonpath_template` description text updated on all three wrappers to
   proactively mention the bracket-list syntax.
+
+**Unaffected by FR20's rename:** `check_nested_braces()` takes a plain string and has no
+parameter-name awareness — only the call sites feeding it (now reading from `jsonpath` instead
+of `jsonpath_template`) change.
 
 ### FR9. `k_get_secret_to_file`
 
@@ -546,3 +556,83 @@ ready to execute the moment it's accepted; do not start building from PRD §15 F
   `_TOOL_DEFINITIONS` with the new `grep`/`grep_ignore_case` kwargs, matching the real wrapper
   call shape exactly (see Issue 40/41 — this is the exact class of mismatch that test exists to
   catch).
+
+### FR20. Rename `jsonpath_template`→`jsonpath`; drop `output="jsonpath"`; unconditional precedence over `output`
+
+**Status: Proposed, plan ready — coder-executable from this section alone.** Motivating
+finding, full design rationale, and success criteria are in `PRD.md` §15 FR20; this section is
+the file-by-file implementation plan only.
+
+**Ordering principle that drives every change below:** in each of `get.py`/`apply.py`/
+`patch.py`, the `jsonpath`-truthy check must now run — and short-circuit every `output`-value-
+specific branch — *before* any check that inspects `output`'s value. Today the ordering is
+reversed in `apply.py`/`patch.py` (the unconditional `output == "wide"` rejection runs before
+the `jsonpath_template`-truthy trigger), which is exactly the bug this FR fixes as a side
+effect of the rename.
+
+- **`errors.py`:** no new error code — `invalid_output()` already accepts `detail`. This FR's
+  job is populating it at every call site, plus one new caller for the legacy-value case.
+- **`tools/get.py`:**
+  - Rename the parameter `jsonpath_template` → `jsonpath` throughout `handle_get()`.
+  - Reorder the fail-fast block: move the nested-brace check (`if jsonpath: check_nested_braces(jsonpath)`)
+    and the `annotation_selector`+`jsonpath` incompatibility check to run first, keyed off
+    `jsonpath` truthy — these are unaffected by `output`'s value and should fire regardless.
+  - The `annotation_selector` + `output == "wide"` incompatibility check is unrelated to
+    `jsonpath` and stays as-is, unchanged.
+  - **New legacy-value check:** `if output == "jsonpath" and not jsonpath:` → `invalid_output(
+    context, output, detail="'jsonpath' is no longer a valid output value — set the jsonpath "
+    "parameter directly instead, e.g. jsonpath='{.metadata.name}'. output does not need to be "
+    "set when jsonpath is.")`. This replaces today's detail-less version of the same check.
+  - Execution: `if jsonpath:` branch (was `if jsonpath_template:`) is checked *before* the
+    `output == "wide"` branch, same as today (no ordering bug existed here — `get.py`'s `wide`
+    branch was never unconditional the way apply/patch's was) — just rename the variable and
+    the echoed response key (`"jsonpath_template"` → `"jsonpath"`).
+- **`tools/apply.py`:**
+  - Rename `jsonpath_template` → `jsonpath`.
+  - **Reorder:** move `if jsonpath: check_nested_braces(...)` to run immediately after the
+    legacy-value check below, and move the `if output == "wide": return invalid_output(...)`
+    rejection to only fire in an `elif`/nested branch reached when `jsonpath` is falsy — i.e.
+    restructure the top of the function so the shape is: legacy-value check → (if `jsonpath`:
+    nested-brace check, then proceed straight to the jsonpath execution branch further down,
+    skipping the `wide` check entirely) → (else: existing `output == "wide"` rejection, now
+    with `detail="output=wide has no meaning for k_apply — kubectl's -o wide is a get-only
+    list-formatting flag"` added, since it was previously detail-less too).
+  - **New legacy-value check:** same shape as `get.py`'s, adapted to `"k_apply"` as the tool
+    name in the envelope.
+  - Execution branch: `if jsonpath:` (was `if jsonpath_template:`), echoed key renamed.
+- **`tools/patch.py`:** identical restructuring to `apply.py` (same current bug shape, same
+  fix), with `detail="output=wide has no meaning for k_patch — ..."` and `"k_patch"` in the
+  legacy-value check's envelope call.
+- **`server.py`:** for the `get`, `apply`, `patch` wrapper functions — rename the
+  `jsonpath_template` parameter to `jsonpath` in both the function signature and the
+  `_dispatch(...)` kwargs; update each tool description: drop `jsonpath` from the `output` enum
+  list text (keep `name`/`json`/`yaml`/`wide` as applicable per tool), and rephrase the
+  `jsonpath` param's description to state it is the sole trigger and overrides `output`
+  unconditionally when set, e.g. *"jsonpath: JsonPath template — setting this alone is
+  sufficient to enable jsonpath mode and overrides any `output` value; `output='jsonpath'` is
+  no longer valid, do not set it"*.
+- **Tests:**
+  - `tests/unit/test_tools_get.py` / `test_tools_apply.py` / `test_tools_patch.py`: rename every
+    `jsonpath_template=` call keyword to `jsonpath=`; rename every assertion on the echoed
+    `"jsonpath_template"` response key to `"jsonpath"`.
+  - New cases per tool (mirroring PRD §15 FR20's success-criteria list): `jsonpath` set +
+    `output="json"` → jsonpath path taken, `output` ignored; `jsonpath` set + `output="wide"`
+    → succeeds on `k_get` (already worked) **and on `k_apply`/`k_patch`** (new — this is the
+    regression-fix case, must assert success, not `invalid_output`); `output="jsonpath"` with no
+    `jsonpath` → `invalid_output` with a non-empty `detail` mentioning `jsonpath`; `output="wide"`
+    on `k_apply`/`k_patch` with **no** `jsonpath` set → still `invalid_output` (regression guard
+    that the reorder didn't loosen the `wide`-rejection for the genuinely-`jsonpath`-absent case),
+    now also asserting `detail` is non-empty.
+  - `tests/unit/test_jsonpath_validation.py`: unaffected — `check_nested_braces()`'s own tests
+    don't reference a parameter name at all.
+  - `tests/unit/test_server.py`: update the `get`/`apply`/`patch` entries in `_TOOL_DEFINITIONS`
+    (or equivalent fixture) from `jsonpath_template` to `jsonpath`, matching the renamed real
+    wrapper kwargs exactly — this is the precise class of mismatch Issue 40/41 exists to catch;
+    skipping this update would leave the dispatch-path smoke test silently exercising a stale
+    kwarg name.
+- **Docs (do in the same change, not a follow-up — see the Definition of Done checklist):**
+  PRD.md §6's `k_get`/`k_apply`/`k_patch` rows updated to say `jsonpath` (not
+  `jsonpath_template`) and drop `"jsonpath"` from the `output` value list in the description
+  column, only once this actually ships — until then §6 continues to describe current
+  (`jsonpath_template`) reality, per this project's own established convention of not
+  pre-editing §6 for unimplemented FRs.

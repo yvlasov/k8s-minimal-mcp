@@ -230,6 +230,8 @@ Not part of v1 scope. Tracked here as candidates, not commitments — promote to
 
 **Scope boundary:** `k_get`-only for the template-required enum value; `describe`/`logs` excluded (not structured output).
 
+**Superseded by FR20 (proposed, not yet built):** the param is being renamed `jsonpath_template`→`jsonpath` and `output="jsonpath"` is being dropped as a documented value entirely — the presence of `jsonpath` alone becomes the sole, unconditional trigger, overriding `output` regardless of its value. This section is left as the historical record of what shipped originally; see FR20 for the current proposed design.
+
 ### FR2. `annotation_selector` for `k_get` — **Done**
 
 **Motivation.** kubectl has no server-side annotation selector — `-l`/`--selector` only matches labels. Resources tagged via annotations (GitOps tooling, Helm's `meta.helm.sh/*`, custom operator bookkeeping) had no narrowing mechanism short of fetching everything and filtering by hand outside the tool.
@@ -269,6 +271,8 @@ Not part of v1 scope. Tracked here as candidates, not commitments — promote to
 **Motivation.** A live occurrence (Issue 29) showed nested-brace multi-field syntax (`{.items[*].{a,b,c}}`) — not valid Kubernetes jsonpath — correctly rejected by kubectl but with zero actionable guidance in the raw error. FR1 explicitly anticipated this exact tradeoff and scoped this fix narrowly to the one proven-common mistake.
 
 **Shape:** `check_nested_braces()` — pure syntactic brace-depth scan, applied to `k_get`/`k_apply`/`k_patch` before `resolve()`/kubectl. New `invalid_jsonpath_template` error explaining the bracket-list/`range` syntax. **Explicit scope boundary:** not a general jsonpath grammar validator — every other malformed-jsonpath case still flows through `kubectl_failure`.
+
+**Unaffected by FR20:** this check operates on the template string's syntax regardless of which parameter name carries it — FR20's rename doesn't change `check_nested_braces()` itself, only which param supplies its input.
 
 ### FR9. `k_get_secret_to_file` — write a Secret's decoded content to a local file, never into model context — **Done**
 
@@ -468,3 +472,83 @@ Purely organizational; low priority relative to FR15–FR18, worth doing only on
 premature).
 
 **Interaction with existing rules:** none — module reorganization, zero behavior change.
+
+### FR20. Rename `jsonpath_template`→`jsonpath`; drop `output="jsonpath"`; `jsonpath` unconditionally overrides `output`
+
+**Motivation.** A real agent-facing failure mode, reported live: an agent called `k_get(...,
+output="jsonpath")` without also setting `jsonpath_template`, hit `invalid_output`, and the
+response carried **no `detail` field at all** — just `{"error": "invalid_output", "output":
+"jsonpath"}` — giving the agent zero information about what was actually wrong or how to fix
+it. Root cause traced to `errors.py`'s `invalid_output()` helper already supporting an optional
+`detail` parameter that **none of its five call sites** (`get.py`, `apply.py` ×2, `patch.py`
+×2) ever pass. Separately, the underlying design itself invites the mistake: `"jsonpath"` is
+advertised as a valid `output` enum value, but setting it alone accomplishes nothing — the
+actual trigger, since FR1, has always been `jsonpath_template`'s presence, `output`'s value
+being otherwise irrelevant. Two params that can independently claim to select "jsonpath mode,"
+one of which is a no-op by itself, is the actual source of confusion — a better error message
+alone treats the symptom, not the design that produces it.
+
+**Proposed shape:**
+- Rename `jsonpath_template: str | None` → `jsonpath: str | None` on `k_get`/`k_apply`/
+  `k_patch` — matches kubectl's own `-o jsonpath=<template>` vocabulary directly (this
+  project's own stated principle, R6/§11, is keeping kubectl-identical vocabulary in typed
+  params rather than inventing parallel names).
+- **Drop `"jsonpath"` from `output`'s documented/valid enum entirely.** `jsonpath`'s presence
+  (truthy) becomes the sole trigger for jsonpath mode — full stop, not "presence of the
+  template, unless overridden by a specific `output` value."
+- **`jsonpath` unconditionally overrides `output` whenever both are set — regardless of what
+  `output` is set to.** `k_get(resource=..., jsonpath="{.metadata.name}", output="wide")`,
+  `k_apply(..., jsonpath="{.metadata.name}", output="wide")`, and every other
+  `output` value in combination with `jsonpath` all succeed identically to `jsonpath` set
+  alone. This is a genuine behavior change for `k_apply`/`k_patch`: today, `output="wide"` is
+  rejected unconditionally *before* the code ever checks whether `jsonpath_template` would have
+  made the value moot (`apply.py`'s `if output == "wide": return invalid_output(...)` fires
+  regardless of `jsonpath_template`) — under the new precedence rule, that check must only
+  fire when `jsonpath` is *not* set.
+- **Legacy/back-compat safety net, not a silent no-op:** a caller that still passes
+  `output="jsonpath"` with no `jsonpath` value gets a clear, corrective `invalid_output` error
+  — `detail` explicitly states `jsonpath` is no longer a valid `output` value and that setting
+  the `jsonpath` parameter alone (no `output` needed) is the correct usage, with a one-line
+  example. This directly fixes the original reported failure mode even for a caller still
+  reaching for the old convention out of kubectl-CLI habit.
+- **While touching every `invalid_output` call site anyway, populate `detail` on all of
+  them** — including `apply.py`/`patch.py`'s pre-existing `output=="wide"` rejection, which
+  today also passes no `detail` (same root gap, same fix, same commit).
+- Success-response key renamed to match: `{"data": ..., "jsonpath": jsonpath}` (was
+  `"jsonpath_template"`).
+
+**Interaction with existing rules:**
+- **R4** — self-reporting requirement unchanged; only the echoed key name changes.
+- **R6/§11** — this rename is a direct application of "keep kubectl-identical vocabulary,"
+  the same reasoning already applied to `resource`, `-o` values, and selector syntax elsewhere.
+- **FR1/FR8** — both superseded for the param name specifically; their original implementation
+  record is left as historical detail (see the "Superseded by FR20" notes on each), not
+  rewritten in place.
+
+**Success criteria (this FR is not "implemented" until every one of these has a passing test —
+see SPEC.md §8 FR20 for the exact test list):**
+1. `jsonpath` set, `output` unset → succeeds, unchanged from today's `jsonpath_template` behavior.
+2. `jsonpath` set + `output="json"` → succeeds identically to (1); `output` fully ignored.
+3. `jsonpath` set + `output="wide"` on `k_get` → succeeds identically to (1).
+4. `jsonpath` set + `output="wide"` on `k_apply`/`k_patch` → **succeeds** (this is the fixed
+   ordering bug — today this combination is rejected before `jsonpath_template` is ever
+   checked; must have an explicit regression test guarding the new order).
+5. `output="jsonpath"` with no `jsonpath` set → `invalid_output`, with a non-empty `detail`
+   naming the `jsonpath` parameter as the correct replacement.
+6. `output="wide"` on `k_apply`/`k_patch` with **no** `jsonpath` set → still rejected as before
+   (regression guard: confirms the reordering didn't accidentally let `wide` through when
+   `jsonpath` is genuinely absent).
+7. Nested-brace validation (FR8) still fires correctly reading from the renamed `jsonpath` param.
+8. `annotation_selector` + `jsonpath` still mutually exclusive on `k_get` (rename-only
+   regression case).
+9. Every `invalid_output` call site touched by this FR carries a non-empty `detail` in its
+   test assertion, not just a bare error code.
+10. `tests/unit/test_server.py`'s dispatch-path fixtures for `get`/`apply`/`patch` updated to
+    the renamed `jsonpath` kwarg — must match the real wrapper's call shape exactly, per the
+    Issue 40/41 lesson this project has already paid for once.
+11. Full suite passes with zero regressions elsewhere; every existing
+    `jsonpath_template=` call in `test_tools_get.py`/`test_tools_apply.py`/`test_tools_patch.py`
+    updated to `jsonpath=`.
+
+**Status:** Proposed, plan ready — see `SPEC.md` §8 FR20 for the exact file-by-file
+implementation plan.
