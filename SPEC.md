@@ -63,7 +63,8 @@ k8s-minimal-mcp/
 │       │   ├── resolver.py        # resolve(context, resource_name) per PRD §7 pseudocode
 │       │   ├── models.py          # ResourceMeta: canonical name, shortnames, kind, group/version, namespaced, verbs
 │       │   ├── annotation_selector.py  # FR2: parse/match annotation_selector query grammar
-│       │   └── jsonpath_validation.py  # FR8: nested-brace jsonpath_template syntax guard
+│       │   ├── jsonpath_validation.py  # FR8: nested-brace jsonpath syntax guard
+│       │   └── grep_filter.py          # FR14: compile_grep_pattern()/filter_lines() for k_logs/k_describe/k_get
 │       │
 │       ├── kubectl/               # R11 — subprocess boundary, isolated for mockability
 │       │   ├── __init__.py
@@ -80,10 +81,16 @@ k8s-minimal-mcp/
 │       │   ├── bounding.py        # R10: tail/name-only/truncation defaults + R4 self-reporting
 │       │   └── envelope.py        # wraps every tool response: context echo (R3), reduction-applied metadata
 │       │
-│       ├── errors.py              # shared error-response contract (§7): ambiguous_resource, unknown_resource,
-│       │                          # verb_unsupported, namespace_invalid, unknown_context, access_denied, unsafe_path,
-│       │                          # file_exists, file_write_failed, file_read_failed, invalid_output, invalid_selector,
-│       │                          # invalid_jsonpath_template, helm_release_not_found, helm_release_decode_failed
+│       ├── errors/                # shared error-response contract (§7) — split into a package by
+│       │   │                      # domain (FR19); errors/__init__.py re-exports every name so
+│       │   │                      # `from ..errors import X` call sites are unchanged
+│       │   ├── __init__.py        # re-exports core.py + files.py + helm.py's public names
+│       │   ├── core.py            # ambiguous_resource, unknown_resource, object_not_found, verb_unsupported,
+│       │   │                      # namespace_invalid, unknown_context, access_denied, kubectl_failure,
+│       │   │                      # exec_failed, invalid_manifest, invalid_output, invalid_selector,
+│       │   │                      # discovery_failure, invalid_jsonpath_template, invalid_grep_pattern
+│       │   ├── files.py           # unsafe_path, file_exists, file_write_failed, file_read_failed (FR9/FR10)
+│       │   └── helm.py            # helm_release_not_found, helm_release_decode_failed (FR12)
 │       │
 │       ├── access.py              # R7: access-level -> allowed verb set; registration-time filter, not per-call check
 │       │
@@ -102,6 +109,7 @@ k8s-minimal-mcp/
 │   │   ├── test_errors.py         # §7 error contract shape for each code
 │   │   ├── test_prompts.py        # FR11: exact resource=/field-path string assertions per prompt
 │   │   ├── test_utils.py          # extract_named_entity() pattern coverage
+│   │   ├── test_grep_filter.py    # FR14: compile_grep_pattern()/filter_lines() coverage
 │   │   ├── test_tools_get_helm_release.py  # FR12: decode-chain, revision-selection, redaction-gap coverage
 │   │   ├── test_tools_auth_can_i.py   # FR13: exit-code mapping, --as/--as-group ordering, --list parsing
 │   │   ├── test_server.py             # _dispatch() smoke tests, every registered tool x every access level, using real handlers (only resolve/run_kubectl mocked)

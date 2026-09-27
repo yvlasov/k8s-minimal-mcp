@@ -230,7 +230,7 @@ Not part of v1 scope. Tracked here as candidates, not commitments — promote to
 
 **Scope boundary:** `k_get`-only for the template-required enum value; `describe`/`logs` excluded (not structured output).
 
-**Superseded by FR20 (proposed, not yet built):** the param is being renamed `jsonpath_template`→`jsonpath` and `output="jsonpath"` is being dropped as a documented value entirely — the presence of `jsonpath` alone becomes the sole, unconditional trigger, overriding `output` regardless of its value. This section is left as the historical record of what shipped originally; see FR20 for the current proposed design.
+**Superseded by FR20 (done):** the param was renamed `jsonpath_template`→`jsonpath` and `output="jsonpath"` was dropped as a documented value entirely — the presence of `jsonpath` alone is now the sole, unconditional trigger, overriding `output` regardless of its value. This section is left as the historical record of what originally shipped; see FR20 for the current design.
 
 ### FR2. `annotation_selector` for `k_get` — **Done**
 
@@ -473,7 +473,7 @@ premature).
 
 **Interaction with existing rules:** none — module reorganization, zero behavior change.
 
-### FR20. Rename `jsonpath_template`→`jsonpath`; drop `output="jsonpath"`; `jsonpath` unconditionally overrides `output`
+### FR20. Rename `jsonpath_template`→`jsonpath`; drop `output="jsonpath"`; `jsonpath` unconditionally overrides `output` — **Done**
 
 **Motivation.** A real agent-facing failure mode, reported live: an agent called `k_get(...,
 output="jsonpath")` without also setting `jsonpath_template`, hit `invalid_output`, and the
@@ -550,5 +550,6 @@ see SPEC.md §8 FR20 for the exact test list):**
     `jsonpath_template=` call in `test_tools_get.py`/`test_tools_apply.py`/`test_tools_patch.py`
     updated to `jsonpath=`.
 
-**Status:** Proposed, plan ready — see `SPEC.md` §8 FR20 for the exact file-by-file
-implementation plan.
+**Status:** Done — verified: rename, reordering, and both `detail` messages confirmed present
+in `get.py`/`apply.py`/`patch.py`/`server.py` by direct read; PRD §6's table already reflects
+the new param. See `CHANGELOG.md` FR20.

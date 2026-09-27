@@ -60,7 +60,14 @@ Updated `KNOWN_ISSUES.md` (FR16 → Done).
 
 Full suite: 412 passed, 9 skipped. `mypy src` — success. `ruff check src` — all checks passed.
 
-Comitted `TODO`.
+**Note (2026-09-27, added on review):** `mypy src` reporting success is misleading —
+`disable_error_code` suppresses `no-untyped-def` and `no-any-return`, the exact two codes
+`disallow_untyped_defs`/`warn_return_any` would otherwise produce, plus three more broad
+categories (`union-attr`, `arg-type`, `assignment`). Removing the disable list surfaces 24 real
+errors across 13 files, most a single repeated pattern (`resolve()`'s `ResourceMeta |
+dict[str, Any]` return type not narrowed in a way mypy can track). See Issue 49.
+
+Committed `30e0d7f`.
 
 ### FR17 — Pin `fastmcp` to a tested version range
 
@@ -70,7 +77,7 @@ differences between versions (`add_tool()` vs. `.tool()`; `**kwargs`-shaped tool
 starting at some version at/before `4.0.4`). A fresh `uv sync` today could still resolve to an
 old `fastmcp` version reproducing Issue 13's crash. Current installed/tested version is `4.0.4`.
 
-Comitted `TODO`.
+Committed `bd2f524`.
 
 ### FR18 — Add CI (GitHub Actions) running the test suite on push/PR
 
@@ -78,7 +85,7 @@ Added `.github/workflows/test.yml` — minimal GitHub Actions workflow triggerin
 `pull_request` against `main`. Jobs: checkout, set up Python 3.11/3.12, `uv sync --extra dev`,
 `PYTHONPATH=. uv run pytest -q`, `uv run ruff check src`, `uv run mypy src`.
 
-Comitted `TODO`.
+Committed `0035acc`.
 
 ### FR19 — Split `errors.py` into a small package by error domain
 
@@ -91,7 +98,7 @@ the codebase needs zero changes. Purely organizational; zero behavior change.
 
 412 passed, 9 skipped.
 
-Comitted `TODO`.
+Committed `296b911`.
 
 ### FR14 — `grep` — text-filtering for `k_logs`/`k_describe`/`k_get output=wide`
 

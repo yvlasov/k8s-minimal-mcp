@@ -56,6 +56,77 @@ implemented" label written before it was actually true). A Status line may not c
 
 ---
 
+## OPEN (not yet fixed)
+
+### 49. FR16's `mypy` config disables the exact error codes `disallow_untyped_defs`/`warn_return_any` would produce, silently defeating its own stated purpose
+
+**File:** `pyproject.toml` (`[tool.mypy]`)
+**Severity:** High — not a runtime bug, but the tooling this project added specifically to
+catch typing deviations automatically (motivated by FR15's `auth_can_i.py` `discovery_cache:
+object | None` slipping through unnoticed) does not actually do that, and currently reports
+false confidence ("Success: no issues found in 40 source files").
+**Root cause:** `disable_error_code = ["union-attr", "arg-type", "no-untyped-def",
+"no-any-return", "assignment"]` includes `no-untyped-def` (the exact code
+`disallow_untyped_defs = true` produces for a missing annotation) and `no-any-return` (the
+exact code `warn_return_any = true` produces). Setting both options `true` while disabling
+their own output codes makes them fully inert — **FR15's original `object`-typed parameter
+would not have been caught by this config either**, the precise scenario FR16 was proposed to
+prevent.
+**Confirmed by direct test (2026-09-27):** temporarily cleared `disable_error_code` and ran
+`uv run mypy src` — surfaces **24 real errors across 13 files**, restored immediately after.
+The large majority (≈20) are one repeated pattern: `resolve()`/`validate()`-adjacent code
+assigns `res = resolve(...)` (typed `ResourceMeta | dict[str, Any]`), guards with `if
+isinstance(res, dict) and "error" in res: return ...`, then uses `res`/`resource_meta` as a
+bare `ResourceMeta` afterward — mypy cannot narrow past the compound condition (`"error" in
+res` isn't an `isinstance` check), so every subsequent `.fully_qualified_name`/`.kind`/
+`validate(resource_meta, ...)` call is flagged `union-attr`/`arg-type`. Confirmed via
+`resolver.py` that every dict `resolve()`/`validate()` ever returns already goes through an
+`errors.py` helper and therefore always carries `"error"` — the `"error" in res` clause is
+dead weight, not a real safety check, so simplifying to `isinstance(res, dict)` alone is a
+verified behavior-preserving fix, not a risk.
+**Remaining ~4 errors, distinct causes, need individual handling:**
+- `resolution/core_table.py:29` — `Traversable` assigned to a `Path`-typed variable
+  (pre-existing `# type: ignore[operator]` comment doesn't cover the `assignment` code that's
+  actually raised — comment needs correcting, not just re-adding a broader ignore).
+- `tools/list_resources.py:36` — a nested function missing a type annotation
+  (`no-untyped-def`) — trivial, just add it.
+- `tools/list_resources.py:66,68` — same `DiscoveryCache.get()`/`.refresh()` union-narrowing
+  pattern as above, applied to a different type (`list[ResourceMeta] | dict[str, Any]` instead
+  of `ResourceMeta | dict[str, Any]`) — same fix shape.
+- `tools/contexts.py:22` — `envelope_list_contexts()` argument type mismatch, needs its own
+  look (not yet root-caused).
+- `server.py:46` — a nested function missing a type annotation; `server.py:73` — a function
+  declared to return `dict[str, Any]` returning `Any` (needs a narrower return or an explicit
+  cast at that one call site).
+**Proposed fix:**
+1. Project-wide: change every `if isinstance(res, dict) and "error" in res:` (and the
+   equivalent for `DiscoveryCache.get()`/`.refresh()`'s return unions) to `if isinstance(res,
+   dict):` alone — verified behavior-preserving, resolves ~20 of the 24 errors, and lets mypy
+   narrow correctly for the rest of each function.
+2. Fix the ~4 remaining errors individually (annotations, the `core_table.py` ignore-comment
+   mismatch, `contexts.py`'s argument type, `server.py`'s two spots).
+3. Shrink `disable_error_code` to whatever's left after (1)+(2) — ideally empty, or if any
+   single case is genuinely a false positive, disable it with an inline `# type: ignore[code]`
+   comment at that one line (with a reason) rather than a blanket project-wide suppression.
+4. Add a regression note to `SPEC.md` §6 or a code comment: **do not widen
+   `disable_error_code` to make a new mypy failure go away** — fix the annotation or narrow the
+   type instead; a suppressed code category defeats the entire tool for every future file, not
+   just the one that triggered it.
+**Status:** OPEN, not yet fixed. No behavior change needed for (1)/(2) — verified
+non-behavioral by tracing `resolver.py`'s actual return shapes; this is a real coverage gap in
+the tooling itself, not a code defect.
+
+**Addendum, found in the same review pass (2026-09-27):** `uv run ruff check src` currently
+**fails** — one import-sort error (`I001`) in `src/k8s_mcp/errors/__init__.py`, introduced when
+FR19's package split re-exported FR14's `ERROR_INVALID_GREP_PATTERN`/`invalid_grep_pattern`
+without re-running the sorter. Trivial and auto-fixable (`ruff check --fix src`, zero behavior
+change), but it means `.github/workflows/test.yml` (FR18) would currently fail its `ruff check`
+step on the very first real push/PR that triggers it — the "all checks passed" claims in
+`CHANGELOG.md`'s FR16/FR19 entries were true only at the moment each was written, not
+re-verified after the later change that broke them.
+
+---
+
 ## FIXED
 
 Full detail for each of the following (root cause, fix, tests, verification, commit hash) is
