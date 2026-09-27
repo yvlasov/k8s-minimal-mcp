@@ -11,6 +11,21 @@ Ordered newest-first within each section, matching the order these were actually
 
 ## Feature Requests
 
+### FR14 — `grep` — text-filtering for `k_logs`/`k_describe`/`k_get output=wide`
+
+Server-side regex filtering for unstructured-text tool output. New `grep: str | None` and
+`grep_ignore_case: bool` params on `k_logs`, `k_describe`, and `k_get` (grep is only meaningful
+with `k_get` when `output="wide"`). Fail-fast on invalid regex via new `invalid_grep_pattern`
+error. Filter applied to the text field only, after bounding (tail/limit_bytes for logs), before
+`_bound`/`_filtered` metadata assembly. Response includes `_filtered: {"matched": N, "total": M}`.
+
+Shared module `src/k8s_mcp/resolution/grep_filter.py` with `compile_grep_pattern()` and
+`filter_lines()`. New `tests/unit/test_grep_filter.py` (12 tests). Per-tool grep tests added to
+`test_tools_logs.py` (6 tests), `test_tools_describe.py` (4 tests), `test_tools_get.py` (5 tests),
+and `_TOOL_DEFINITIONS` updated in `test_server.py` for logs/describe/get. Full suite: 403 passed.
+
+Committed `b2e446f`.
+
 ### FR13 — `k_auth_can_i`
 
 Thin wrapper over `kubectl auth can-i` (RBAC effective-permission checks). Single-check and
