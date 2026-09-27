@@ -80,6 +80,19 @@ Added `.github/workflows/test.yml` — minimal GitHub Actions workflow triggerin
 
 Comitted `TODO`.
 
+### FR19 — Split `errors.py` into a small package by error domain
+
+Converted `src/k8s_mcp/errors.py` (306 lines) into a package `src/k8s_mcp/errors/` —
+`errors/core.py` (R2/R6/R7/R8 contract helpers: 15 error codes + helpers),
+`errors/files.py` (FR9/FR10's path/file helpers: 4 error codes + helpers),
+`errors/helm.py` (FR12's helpers: 2 error codes + helpers) — with `errors/__init__.py`
+re-exporting every public name so every existing `from ..errors import X` call site across
+the codebase needs zero changes. Purely organizational; zero behavior change.
+
+412 passed, 9 skipped.
+
+Comitted `TODO`.
+
 ### FR14 — `grep` — text-filtering for `k_logs`/`k_describe`/`k_get output=wide`
 
 Server-side regex filtering for unstructured-text tool output. New `grep: str | None` and

@@ -1,19 +1,8 @@
-"""Shared error-response contract per PRD §7.
-
-Every error returns a dict with:
-  - context: echoed back from input
-  - error: one of the codes below
-  - (optional) candidates, hint, suggestions, valid_contexts
-
-Error responses are constructed only via the helpers below so the §7 shape
-stays identical everywhere. No tool assembles error dicts ad hoc.
-"""
+"""Core resolution and tool errors (R2/R6/R7/R8 contract helpers)."""
 
 from __future__ import annotations
 
 from typing import Any
-
-# ── Error codes ──────────────────────────────────────────────────────────────
 
 ERROR_AMBIGUOUS_RESOURCE = "ambiguous_resource"
 ERROR_UNKNOWN_RESOURCE = "unknown_resource"
@@ -29,17 +18,8 @@ ERROR_INVALID_SELECTOR = "invalid_selector"
 ERROR_DISCOVERY_FAILURE = "discovery_failure"
 ERROR_INVALID_JSONPATH_TEMPLATE = "invalid_jsonpath_template"
 ERROR_INVALID_GREP_PATTERN = "invalid_grep_pattern"
-ERROR_UNSAFE_PATH = "unsafe_path"
-ERROR_FILE_EXISTS = "file_exists"
-ERROR_FILE_WRITE_FAILED = "file_write_failed"
-
-ERROR_FILE_READ_FAILED = "file_read_failed"
 ERROR_OBJECT_NOT_FOUND = "object_not_found"
-ERROR_HELM_RELEASE_NOT_FOUND = "helm_release_not_found"
-ERROR_HELM_RELEASE_DECODE_FAILED = "helm_release_decode_failed"
 
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _base(context: str, code: str) -> dict[str, Any]:
     return {"context": context, "error": code}
@@ -237,58 +217,6 @@ def invalid_grep_pattern(
     return out
 
 
-def unsafe_path(
-    context: str,
-    path: str,
-    *,
-    detail: str | None = None,
-) -> dict[str, Any]:
-    """k_get_secret_to_file: dst_secret_file failed the path-safety check (e.g. not absolute)."""
-    out = _base(context, ERROR_UNSAFE_PATH)
-    out["path"] = path
-    if detail:
-        out["detail"] = detail
-    return out
-
-
-def file_exists(
-    context: str,
-    path: str,
-) -> dict[str, Any]:
-    """k_get_secret_to_file: destination file already exists and overwrite is not set."""
-    out = _base(context, ERROR_FILE_EXISTS)
-    out["path"] = path
-    return out
-
-
-def file_write_failed(
-    context: str,
-    path: str,
-    *,
-    detail: str | None = None,
-) -> dict[str, Any]:
-    """k_get_secret_to_file: writing the decoded Secret to disk failed (permissions, missing parent dir)."""
-    out = _base(context, ERROR_FILE_WRITE_FAILED)
-    out["path"] = path
-    if detail:
-        out["detail"] = detail
-    return out
-
-
-def file_read_failed(
-    context: str,
-    path: str,
-    *,
-    detail: str | None = None,
-) -> dict[str, Any]:
-    """k_apply: reading the manifest from src_file failed (missing file, permissions, undecodable content)."""
-    out = _base(context, ERROR_FILE_READ_FAILED)
-    out["path"] = path
-    if detail:
-        out["detail"] = detail
-    return out
-
-
 def object_not_found(
     context: str,
     resource: str | None = None,
@@ -304,36 +232,4 @@ def object_not_found(
         out["name"] = name
     if raw_stderr:
         out["raw_stderr"] = raw_stderr
-    return out
-
-
-def helm_release_not_found(
-    context: str,
-    release: str,
-    namespace: str,
-) -> dict[str, Any]:
-    """k_get_helm_release: no Secret with Helm labels matching the release name exists."""
-    out = _base(context, ERROR_HELM_RELEASE_NOT_FOUND)
-    out["release"] = release
-    out["namespace"] = namespace
-    return out
-
-
-def helm_release_decode_failed(
-    context: str,
-    release: str,
-    namespace: str,
-    *,
-    stage: str,
-    detail: str,
-) -> dict[str, Any]:
-    """k_get_helm_release: the .data.release value failed to decode at a specific stage.
-
-    stage is one of {"base64", "gzip", "json"} — names exactly which decode step broke.
-    """
-    out = _base(context, ERROR_HELM_RELEASE_DECODE_FAILED)
-    out["release"] = release
-    out["namespace"] = namespace
-    out["stage"] = stage
-    out["detail"] = detail
     return out
