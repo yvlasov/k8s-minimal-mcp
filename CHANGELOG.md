@@ -72,6 +72,14 @@ old `fastmcp` version reproducing Issue 13's crash. Current installed/tested ver
 
 Comitted `TODO`.
 
+### FR18 — Add CI (GitHub Actions) running the test suite on push/PR
+
+Added `.github/workflows/test.yml` — minimal GitHub Actions workflow triggering on `push` and
+`pull_request` against `main`. Jobs: checkout, set up Python 3.11/3.12, `uv sync --extra dev`,
+`PYTHONPATH=. uv run pytest -q`, `uv run ruff check src`, `uv run mypy src`.
+
+Comitted `TODO`.
+
 ### FR14 — `grep` — text-filtering for `k_logs`/`k_describe`/`k_get output=wide`
 
 Server-side regex filtering for unstructured-text tool output. New `grep: str | None` and
