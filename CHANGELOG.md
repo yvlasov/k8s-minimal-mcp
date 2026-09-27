@@ -11,6 +11,37 @@ Ordered newest-first within each section, matching the order these were actually
 
 ## Feature Requests
 
+### FR20 — Rename `jsonpath_template` → `jsonpath`, drop `output="jsonpath"`, unconditional precedence over `output`
+
+Three changes to `k_get`/`k_apply`/`k_patch`'s jsonpath behavior:
+
+1. **Parameter rename:** `jsonpath_template` → `jsonpath` across all three tools, server wrappers,
+   tool descriptions, error messages, and tests. Shorter, less redundant name.
+2. **Legacy-value check with `detail`:** `output="jsonpath"` with no `jsonpath` parameter now
+   returns `invalid_output` with a `detail` field explaining the correct usage pattern
+   (`"'jsonpath' is no longer a valid output value — set the jsonpath parameter directly..."`).
+   Previously this was a bare `invalid_output` with no explanation.
+3. **Unconditional precedence:** when `jsonpath` is set, it now overrides `output` on all three
+   tools — `k_get` already worked this way; `k_apply` and `k_patch` now also accept
+   `output="wide"` alongside `jsonpath` (previously `output="wide"` was always rejected on
+   apply/patch, even when `jsonpath` was set). `output="wide"` without `jsonpath` on
+   `k_apply`/`k_patch` is still rejected, now with a `detail` field.
+
+Files changed: `errors.py` (detail on all `invalid_output` call sites), `tools/get.py`
+(rename, check reordering, legacy-value check), `tools/apply.py` (same), `tools/patch.py`
+(same), `server.py` (param rename in wrappers + descriptions), `tests/unit/test_tools_get.py`
+(rename + 3 new tests), `tests/unit/test_tools_apply.py` (rename + 3 new tests),
+`tests/unit/test_tools_patch.py` (rename + 3 new tests), `PRD.md §6` (param rename + updated
+behavior notes).
+
+New tests: `test_jsonpath_with_output_json_ignored` (get), `test_jsonpath_with_output_wide_succeeds`
+(get, apply, patch), `test_output_jsonpath_without_jsonpath_has_detail` (get, apply, patch),
+`test_output_wide_without_jsonpath_rejected_with_detail` (apply, patch).
+
+Full suite: 412 passed, 9 skipped.
+
+Committed `e7a3f6f`.
+
 ### FR14 — `grep` — text-filtering for `k_logs`/`k_describe`/`k_get output=wide`
 
 Server-side regex filtering for unstructured-text tool output. New `grep: str | None` and

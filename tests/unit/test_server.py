@@ -72,7 +72,7 @@ _TOOL_DEFINITIONS: list[tuple[str, str, dict]] = [
             "label_selector": None,
             "field_selector": None,
             "output": None,
-            "jsonpath_template": None,
+            "jsonpath": None,
             "annotation_selector": None,
             "grep": None,
             "grep_ignore_case": False,
@@ -126,7 +126,7 @@ _TOOL_DEFINITIONS: list[tuple[str, str, dict]] = [
             "namespace": None,
             "dry_run": "none",
             "output": None,
-            "jsonpath_template": None,
+            "jsonpath": None,
         },
     ),
     (
@@ -140,7 +140,7 @@ _TOOL_DEFINITIONS: list[tuple[str, str, dict]] = [
             "type": "strategic",
             "dry_run": "none",
             "output": None,
-            "jsonpath_template": None,
+            "jsonpath": None,
         },
     ),
     (

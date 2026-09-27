@@ -28,32 +28,33 @@ def handle_patch(
     type: str = "strategic",  # "strategic", "merge", "json"
     dry_run: str = "none",
     output: str | None = None,
-    jsonpath_template: str | None = None,
+    jsonpath: str | None = None,
     discovery_cache: DiscoveryCache | None = None,
 ) -> dict[str, Any]:
     """Handle a k_patch call."""
-    # Fail-fast: output=jsonpath without template
-    if output == "jsonpath" and not jsonpath_template:
+    # Fail-fast: output=jsonpath is no longer valid — jsonpath param alone is the trigger
+    if output == "jsonpath" and not jsonpath:
         return envelope(
-            invalid_output(context, output),
+            invalid_output(context, output, detail="'jsonpath' is no longer a valid output value — set the jsonpath parameter directly instead, e.g. jsonpath='{.metadata.name}'. output does not need to be set when jsonpath is."),
             context, "k_patch", success=False,
         )
 
-    # Fail-fast: output=wide not supported on patch (kubectl's -o wide has no meaning for apply/patch)
-    if output == "wide":
-        return envelope(
-            invalid_output(context, output),
-            context, "k_patch", success=False,
-        )
-
-    # Fail-fast: nested-brace jsonpath_template (FR8)
-    if jsonpath_template:
-        nested_err = check_nested_braces(jsonpath_template)
+    # Fail-fast: nested-brace jsonpath (FR8)
+    if jsonpath:
+        nested_err = check_nested_braces(jsonpath)
         if nested_err:
             return envelope(
-                invalid_jsonpath_template(context, jsonpath_template, detail=nested_err),
+                invalid_jsonpath_template(context, jsonpath, detail=nested_err),
                 context, "k_patch", success=False,
             )
+
+    # Fail-fast: output=wide not supported on patch (kubectl's -o wide has no meaning for apply/patch)
+    # Only fires when jsonpath is not set — jsonpath unconditionally overrides output (FR20)
+    if not jsonpath and output == "wide":
+        return envelope(
+            invalid_output(context, output, detail="output=wide has no meaning for k_patch — kubectl's -o wide is a get-only list-formatting flag"),
+            context, "k_patch", success=False,
+        )
 
     # Resolve resource → GVK
     res = resolve(context, resource, discovery_cache=discovery_cache)
@@ -77,14 +78,14 @@ def handle_patch(
         args.extend(["--dry-run", dry_run])
 
     # Execute
-    if jsonpath_template:
-        result = run_kubectl_checked(context, args, stdin=patch, output_format=f"jsonpath={jsonpath_template}")
+    if jsonpath:
+        result = run_kubectl_checked(context, args, stdin=patch, output_format=f"jsonpath={jsonpath}")
         if "error" in result:
             return envelope(result, context, "k_patch", success=False)
         return envelope({
             "data": result["stdout"],
             "dry_run": dry_run if dry_run != "none" else False,
-            "jsonpath_template": jsonpath_template,
+            "jsonpath": jsonpath,
         }, context, "k_patch", success=True)
 
     result = run_kubectl_checked(context, args, stdin=patch)

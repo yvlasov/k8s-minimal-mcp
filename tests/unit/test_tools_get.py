@@ -64,16 +64,16 @@ class TestHandleGet:
 class TestHandleGetJsonpath:
     @patch("src.k8s_mcp.tools.get.resolve")
     @patch("src.k8s_mcp.tools.get.run_kubectl_checked")
-    def test_jsonpath_template_auto_triggers(self, mock_run, mock_resolve, pod_meta):
+    def test_jsonpath_auto_triggers(self, mock_run, mock_resolve, pod_meta):
         mock_resolve.return_value = pod_meta
         mock_run.return_value = {"stdout": "10.0.0.1"}
 
         result = handle_get("test-context", "pods", name="my-pod", namespace="default",
-                            jsonpath_template="{.status.podIP}")
+                            jsonpath="{.status.podIP}")
 
         assert result["success"] is True
         assert result["data"]["data"] == "10.0.0.1"
-        assert result["data"]["jsonpath_template"] == "{.status.podIP}"
+        assert result["data"]["jsonpath"] == "{.status.podIP}"
         assert mock_run.call_args[1]["output_format"] == "jsonpath={.status.podIP}"
 
     @patch("src.k8s_mcp.tools.get.resolve")
@@ -83,7 +83,7 @@ class TestHandleGetJsonpath:
         mock_run.return_value = {"stdout": "nginx"}
 
         result = handle_get("test-context", "pods", name="my-pod", namespace="default",
-                            output="jsonpath", jsonpath_template="{.spec.containers[0].name}")
+                            output="jsonpath", jsonpath="{.spec.containers[0].name}")
 
         assert result["success"] is True
         assert result["data"]["data"] == "nginx"
@@ -104,10 +104,46 @@ class TestHandleGetJsonpath:
         mock_run.return_value = {"stdout": '{"uid": "123", "metadata": {"managedFields": []}}'}
 
         result = handle_get("test-context", "pods", name="my-pod", namespace="default",
-                            jsonpath_template="{.metadata}")
+                            jsonpath="{.metadata}")
 
         assert result["success"] is True
         assert result["data"]["data"] == '{"uid": "123", "metadata": {"managedFields": []}}'
+
+    @patch("src.k8s_mcp.tools.get.resolve")
+    @patch("src.k8s_mcp.tools.get.run_kubectl_checked")
+    def test_jsonpath_with_output_json_ignored(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "10.0.0.1"}
+
+        result = handle_get("test-context", "pods", name="my-pod", namespace="default",
+                            jsonpath="{.status.podIP}", output="json")
+
+        assert result["success"] is True
+        assert result["data"]["data"] == "10.0.0.1"
+        assert result["data"]["jsonpath"] == "{.status.podIP}"
+
+    @patch("src.k8s_mcp.tools.get.resolve")
+    @patch("src.k8s_mcp.tools.get.run_kubectl_checked")
+    def test_jsonpath_with_output_wide_succeeds(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "10.0.0.1"}
+
+        result = handle_get("test-context", "pods", name="my-pod", namespace="default",
+                            jsonpath="{.status.podIP}", output="wide")
+
+        assert result["success"] is True
+        assert result["data"]["data"] == "10.0.0.1"
+
+    @patch("src.k8s_mcp.tools.get.resolve")
+    def test_output_jsonpath_without_jsonpath_has_detail(self, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+
+        result = handle_get("test-context", "pods", name="my-pod", output="jsonpath")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_output"
+        assert "jsonpath" in result["detail"]
+        assert "parameter" in result["detail"]
 
 
 class TestHandleGetAnnotationSelector:
@@ -199,11 +235,11 @@ class TestHandleGetAnnotationSelector:
         assert mock_run.call_args[1].get("output_format") is None
 
     @patch("src.k8s_mcp.tools.get.resolve")
-    def test_annotation_selector_rejects_jsonpath_template(self, mock_resolve, pod_meta):
+    def test_annotation_selector_rejects_jsonpath(self, mock_resolve, pod_meta):
         mock_resolve.return_value = pod_meta
 
         result = handle_get("test-context", "pods", namespace="default",
-                            annotation_selector="app=nginx", jsonpath_template="{.metadata.name}")
+                            annotation_selector="app=nginx", jsonpath="{.metadata.name}")
 
         assert result["success"] is False
         assert result["error"] == "invalid_selector"
@@ -307,11 +343,11 @@ class TestHandleGetWide:
         assert isinstance(result["data"]["output"], str)
 
     @patch("src.k8s_mcp.tools.get.resolve")
-    def test_nested_brace_jsonpath_template_rejected(self, mock_resolve, pod_meta):
+    def test_nested_brace_jsonpath_rejected(self, mock_resolve, pod_meta):
         mock_resolve.return_value = pod_meta
 
         result = handle_get("test-context", "pods", namespace="default",
-                            jsonpath_template="{.items[*].{involvedObject.kind,involvedObject.name}}")
+                            jsonpath="{.items[*].{involvedObject.kind,involvedObject.name}}")
 
         assert result["success"] is False
         assert result["error"] == "invalid_jsonpath_template"
@@ -321,15 +357,15 @@ class TestHandleGetWide:
 
     @patch("src.k8s_mcp.tools.get.resolve")
     @patch("src.k8s_mcp.tools.get.run_kubectl_checked")
-    def test_sibling_braces_jsonpath_template_allowed(self, mock_run, mock_resolve, pod_meta):
+    def test_sibling_braces_jsonpath_allowed(self, mock_run, mock_resolve, pod_meta):
         mock_resolve.return_value = pod_meta
         mock_run.return_value = {"stdout": "myip"}
 
         result = handle_get("test-context", "pods", namespace="default",
-                            jsonpath_template="{.status.podIP}{.metadata.name}")
+                            jsonpath="{.status.podIP}{.metadata.name}")
 
         assert result["success"] is True
-        assert result["data"]["jsonpath_template"] == "{.status.podIP}{.metadata.name}"
+        assert result["data"]["jsonpath"] == "{.status.podIP}{.metadata.name}"
 
 
 class TestHandleGetFullyQualifiedResource:

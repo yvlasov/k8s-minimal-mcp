@@ -33,24 +33,24 @@ def handle_get(
     label_selector: str | None = None,
     field_selector: str | None = None,
     output: str | None = None,
-    jsonpath_template: str | None = None,
+    jsonpath: str | None = None,
     annotation_selector: str | None = None,
     grep: str | None = None,
     grep_ignore_case: bool = False,
     discovery_cache: DiscoveryCache | None = None,
 ) -> dict[str, Any]:
     """Handle a k_get call."""
-    # Fail-fast: output=jsonpath without template
-    if output == "jsonpath" and not jsonpath_template:
+    # Fail-fast: output=jsonpath without jsonpath parameter
+    if output == "jsonpath" and not jsonpath:
         return envelope(
-            invalid_output(context, output),
+            invalid_output(context, output, detail="'jsonpath' is no longer a valid output value — set the jsonpath parameter directly instead, e.g. jsonpath='{.metadata.name}'. output does not need to be set when jsonpath is."),
             context, "k_get", success=False,
         )
 
-    # Fail-fast: annotation_selector + jsonpath_template is not supported
-    if annotation_selector and jsonpath_template:
+    # Fail-fast: annotation_selector + jsonpath is not supported
+    if annotation_selector and jsonpath:
         return envelope(
-            invalid_selector(context, annotation_selector, detail="cannot combine annotation_selector with jsonpath_template"),
+            invalid_selector(context, annotation_selector, detail="cannot combine annotation_selector with jsonpath"),
             context, "k_get", success=False,
         )
 
@@ -62,12 +62,12 @@ def handle_get(
             context, "k_get", success=False,
         )
 
-    # Fail-fast: nested-brace jsonpath_template (FR8)
-    if jsonpath_template:
-        nested_err = check_nested_braces(jsonpath_template)
+    # Fail-fast: nested-brace jsonpath (FR8)
+    if jsonpath:
+        nested_err = check_nested_braces(jsonpath)
         if nested_err:
             return envelope(
-                invalid_jsonpath_template(context, jsonpath_template, detail=nested_err),
+                invalid_jsonpath_template(context, jsonpath, detail=nested_err),
                 context, "k_get", success=False,
             )
 
@@ -118,13 +118,13 @@ def handle_get(
         args.extend(["--field-selector", field_selector])
 
     # Execute
-    if jsonpath_template:
-        result = run_kubectl_checked(context, args, output_format=f"jsonpath={jsonpath_template}")
+    if jsonpath:
+        result = run_kubectl_checked(context, args, output_format=f"jsonpath={jsonpath}")
         if "error" in result:
             return envelope(result, context, "k_get", success=False)
         return envelope({
             "data": result["stdout"],
-            "jsonpath_template": jsonpath_template,
+            "jsonpath": jsonpath,
         }, context, "k_get", success=True)
 
     if output == "wide":

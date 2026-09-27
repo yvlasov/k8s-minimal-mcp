@@ -108,17 +108,17 @@ def main(argv: list[str] | None = None) -> None:
                              search=search)
 
     if "get" in allowed:
-        @app.tool(name="k_get", description="k_get: resource: Resource type; name: Resource name; namespace: Namespace; all_namespaces: List across all namespaces; label_selector: Kubernetes label selector; field_selector: Kubernetes field selector; output: Output format (name/json/yaml/wide/jsonpath); jsonpath_template: JsonPath template for output=jsonpath (for multiple fields use {.items[*]['field1','field2']} or {range}...{end} — nested {...} groups are not supported); annotation_selector: Filter by annotations (key=value, key!=value, key); grep: Filter output lines by regex (only meaningful with output=wide); grep_ignore_case: Case-insensitive grep matching")
+        @app.tool(name="k_get", description="k_get: resource: Resource type; name: Resource name; namespace: Namespace; all_namespaces: List across all namespaces; label_selector: Kubernetes label selector; field_selector: Kubernetes field selector; output: Output format (name/json/yaml/wide); jsonpath: JsonPath template — setting this alone is sufficient to enable jsonpath mode and overrides any output value; output='jsonpath' is no longer valid, do not set it; annotation_selector: Filter by annotations (key=value, key!=value, key); grep: Filter output lines by regex (only meaningful with output=wide); grep_ignore_case: Case-insensitive grep matching")
         def get(context: str, resource: str, name: str | None = None, namespace: str | None = None,
                 all_namespaces: bool = False, label_selector: str | None = None,
                 field_selector: str | None = None, output: str | None = None,
-                jsonpath_template: str | None = None, annotation_selector: str | None = None,
+                jsonpath: str | None = None, annotation_selector: str | None = None,
                 grep: str | None = None, grep_ignore_case: bool = False) -> dict[str, Any]:
             return _dispatch("get", handle_get, context, discovery_cache, allow_namespaces,
                              resource=resource, name=name, namespace=namespace,
                              all_namespaces=all_namespaces, label_selector=label_selector,
                              field_selector=field_selector, output=output,
-                             jsonpath_template=jsonpath_template, annotation_selector=annotation_selector,
+                             jsonpath=jsonpath, annotation_selector=annotation_selector,
                              grep=grep, grep_ignore_case=grep_ignore_case)
 
     if "get_helm_release" in allowed:
@@ -154,24 +154,24 @@ def main(argv: list[str] | None = None) -> None:
                              grep=grep, grep_ignore_case=grep_ignore_case)
 
     if "apply" in allowed:
-        @app.tool(name="k_apply", description="k_apply: manifest: JSON/YAML manifest to apply (exactly one of manifest or src_file is required); src_file: absolute path to a file containing the manifest; namespace: Namespace for namespaced resources; dry_run: Dry-run mode; output: Output format (json/yaml/jsonpath); jsonpath_template: JsonPath template for output=jsonpath (for multiple fields use {.items[*]['field1','field2']} or {range}...{end} — nested {...} groups are not supported)")
+        @app.tool(name="k_apply", description="k_apply: manifest: JSON/YAML manifest to apply (exactly one of manifest or src_file is required); src_file: absolute path to a file containing the manifest; namespace: Namespace for namespaced resources; dry_run: Dry-run mode; output: Output format (json/yaml); jsonpath: JsonPath template — setting this alone is sufficient to enable jsonpath mode and overrides any output value; output='jsonpath' is no longer valid, do not set it)")
         def apply(context: str, manifest: str | None = None, src_file: str | None = None, namespace: str | None = None,
                   dry_run: str = "none", output: str | None = None,
-                  jsonpath_template: str | None = None) -> dict[str, Any]:
+                  jsonpath: str | None = None) -> dict[str, Any]:
             return _dispatch("apply", handle_apply, context, discovery_cache, allow_namespaces,
                              manifest=manifest, src_file=src_file, namespace=namespace, dry_run=dry_run,
-                             output=output, jsonpath_template=jsonpath_template)
+                             output=output, jsonpath=jsonpath)
 
     if "patch" in allowed:
-        @app.tool(name="k_patch", description="k_patch: resource: Resource type; name: Resource name to patch; patch: JSON patch document; namespace: Namespace; type: Patch type; dry_run: Dry-run mode; output: Output format (json/yaml/jsonpath); jsonpath_template: JsonPath template for output=jsonpath (for multiple fields use {.items[*]['field1','field2']} or {range}...{end} — nested {...} groups are not supported)")
+        @app.tool(name="k_patch", description="k_patch: resource: Resource type; name: Resource name to patch; patch: JSON patch document; namespace: Namespace; type: Patch type; dry_run: Dry-run mode; output: Output format (json/yaml); jsonpath: JsonPath template — setting this alone is sufficient to enable jsonpath mode and overrides any output value; output='jsonpath' is no longer valid, do not set it)")
         def patch(context: str, resource: str, name: str, patch: str,
                   namespace: str | None = None, type: str = "strategic",  # noqa: A002
                   dry_run: str = "none", output: str | None = None,
-                  jsonpath_template: str | None = None) -> dict[str, Any]:
+                  jsonpath: str | None = None) -> dict[str, Any]:
             return _dispatch("patch", handle_patch, context, discovery_cache, allow_namespaces,
                              resource=resource, name=name, patch=patch,
                              namespace=namespace, type=type, dry_run=dry_run,
-                             output=output, jsonpath_template=jsonpath_template)
+                             output=output, jsonpath=jsonpath)
 
     if "delete" in allowed:
         @app.tool(name="k_delete", description="k_delete: resource: Resource type; name: Resource name; namespace: Namespace; label_selector: Delete all resources matching this label selector; dry_run: Dry-run mode")

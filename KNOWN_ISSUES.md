@@ -52,7 +52,7 @@ implemented" label written before it was actually true). A Status line may not c
 | FR17 | Pin `fastmcp` to a tested version range (currently unbounded `>=0.2`, ties to Issue 13) | Proposed, plan ready | PRD §15 FR17 |
 | FR18 | Add CI (GitHub Actions) running the test suite on push/PR | Proposed, plan ready | PRD §15 FR18 |
 | FR19 | Split `errors.py` (306 lines) into a package by error domain — low priority | Proposed, plan ready | PRD §15 FR19 |
-| FR20 | Rename `jsonpath_template`→`jsonpath`, drop `output="jsonpath"`, unconditional precedence over `output` | Proposed, plan ready | PRD §15 FR20, SPEC §8 FR20 |
+| FR20 | Rename `jsonpath_template`→`jsonpath`, drop `output="jsonpath"`, unconditional precedence over `output` | Done | PRD §15 FR20, SPEC §8 FR20 |
 
 ---
 

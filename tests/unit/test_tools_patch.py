@@ -54,17 +54,17 @@ class TestHandlePatch:
 class TestHandlePatchJsonpath:
     @patch("src.k8s_mcp.tools.patch.resolve")
     @patch("src.k8s_mcp.tools.patch.run_kubectl_checked")
-    def test_jsonpath_template_auto_triggers(self, mock_run, mock_resolve, deployment_meta):
+    def test_jsonpath_auto_triggers(self, mock_run, mock_resolve, deployment_meta):
         mock_resolve.return_value = deployment_meta
         mock_run.return_value = {"stdout": "3"}
 
         result = handle_patch("test-context", "deployments", "my-deploy", '{"spec": {"replicas": 3}}',
                               namespace="default",
-                              jsonpath_template="{.status.readyReplicas}")
+                              jsonpath="{.status.readyReplicas}")
 
         assert result["success"] is True
         assert result["data"]["data"] == "3"
-        assert result["data"]["jsonpath_template"] == "{.status.readyReplicas}"
+        assert result["data"]["jsonpath"] == "{.status.readyReplicas}"
         assert mock_run.call_args[1]["output_format"] == "jsonpath={.status.readyReplicas}"
 
     @patch("src.k8s_mcp.tools.patch.resolve")
@@ -75,7 +75,7 @@ class TestHandlePatchJsonpath:
 
         result = handle_patch("test-context", "deployments", "my-deploy", '{"spec": {"replicas": 3}}',
                               namespace="default", output="jsonpath",
-                              jsonpath_template="{.spec.template.spec.containers[0].name}")
+                              jsonpath="{.spec.template.spec.containers[0].name}")
 
         assert result["success"] is True
         assert result["data"]["data"] == "nginx"
@@ -98,11 +98,47 @@ class TestHandlePatchJsonpath:
 
         result = handle_patch("test-context", "deployments", "my-deploy", '{"spec": {"replicas": 3}}',
                               namespace="default", dry_run="server",
-                              jsonpath_template="{.status.replicas}")
+                              jsonpath="{.status.replicas}")
 
         assert result["success"] is True
         assert result["data"]["dry_run"] == "server"
-        assert result["data"]["jsonpath_template"] == "{.status.replicas}"
+        assert result["data"]["jsonpath"] == "{.status.replicas}"
+
+    @patch("src.k8s_mcp.tools.patch.resolve")
+    @patch("src.k8s_mcp.tools.patch.run_kubectl_checked")
+    def test_jsonpath_with_output_wide_succeeds(self, mock_run, mock_resolve, deployment_meta):
+        mock_resolve.return_value = deployment_meta
+        mock_run.return_value = {"stdout": "3"}
+
+        result = handle_patch("test-context", "deployments", "my-deploy", '{"spec": {"replicas": 3}}',
+                              namespace="default",
+                              jsonpath="{.status.readyReplicas}", output="wide")
+
+        assert result["success"] is True
+        assert result["data"]["data"] == "3"
+
+    @patch("src.k8s_mcp.tools.patch.resolve")
+    def test_output_jsonpath_without_jsonpath_has_detail(self, mock_resolve, deployment_meta):
+        mock_resolve.return_value = deployment_meta
+
+        result = handle_patch("test-context", "deployments", "my-deploy", '{"spec": {"replicas": 3}}',
+                              namespace="default", output="jsonpath")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_output"
+        assert "jsonpath" in result["detail"]
+        assert "parameter" in result["detail"]
+
+    @patch("src.k8s_mcp.tools.patch.resolve")
+    def test_output_wide_without_jsonpath_rejected_with_detail(self, mock_resolve, deployment_meta):
+        mock_resolve.return_value = deployment_meta
+
+        result = handle_patch("test-context", "deployments", "my-deploy", '{"spec": {"replicas": 3}}',
+                              namespace="default", output="wide")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_output"
+        assert "wide" in result["detail"]
 
 
 class TestHandlePatchOutputFormat:
@@ -144,11 +180,11 @@ class TestHandlePatchOutputFormat:
         assert result["error"] == "invalid_output"
 
     @patch("src.k8s_mcp.tools.patch.resolve")
-    def test_nested_brace_jsonpath_template_rejected(self, mock_resolve, deployment_meta):
+    def test_nested_brace_jsonpath_rejected(self, mock_resolve, deployment_meta):
         mock_resolve.return_value = deployment_meta
 
         result = handle_patch("test-context", "deployments", "my-deploy", '{"spec": {"replicas": 3}}',
-                              namespace="default", jsonpath_template="{.items[*].{a,b}}")
+                              namespace="default", jsonpath="{.items[*].{a,b}}")
 
         assert result["success"] is False
         assert result["error"] == "invalid_jsonpath_template"
@@ -156,15 +192,15 @@ class TestHandlePatchOutputFormat:
 
     @patch("src.k8s_mcp.tools.patch.resolve")
     @patch("src.k8s_mcp.tools.patch.run_kubectl_checked")
-    def test_sibling_braces_jsonpath_template_allowed(self, mock_run, mock_resolve, deployment_meta):
+    def test_sibling_braces_jsonpath_allowed(self, mock_run, mock_resolve, deployment_meta):
         mock_resolve.return_value = deployment_meta
         mock_run.return_value = {"stdout": "ready"}
 
         result = handle_patch("test-context", "deployments", "my-deploy", '{"spec": {"replicas": 3}}',
-                              namespace="default", jsonpath_template="{.status.readyReplicas}{.metadata.name}")
+                              namespace="default", jsonpath="{.status.readyReplicas}{.metadata.name}")
 
         assert result["success"] is True
-        assert result["data"]["jsonpath_template"] == "{.status.readyReplicas}{.metadata.name}"
+        assert result["data"]["jsonpath"] == "{.status.readyReplicas}{.metadata.name}"
 
 
 class TestHandlePatchFullyQualifiedResource:
