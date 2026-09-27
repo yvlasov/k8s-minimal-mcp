@@ -271,6 +271,38 @@ actual trigger. Bypasses pruning/bounding, returns the raw kubectl jsonpath stri
 
 ## Fixed Issues
 
+### 50. `.gitignore` excluded `src/k8s_mcp/contexts/kubeconfig.py` from every commit since the repo's initial commit
+
+**File:** `.gitignore`, `src/k8s_mcp/contexts/kubeconfig.py`
+**Severity:** Critical — not a logic bug, a distribution bug: the published GitHub repo was
+never actually importable by anyone outside the machine this was developed on.
+**Root cause:** `.gitignore`'s "Secrets / credentials" section had a `kubeconfig.*` pattern
+(intended to stop a real kubeconfig credentials file from being committed by accident). That
+pattern also matches the literal source module `src/k8s_mcp/contexts/kubeconfig.py`, which
+implements `list_kubeconfig_contexts()` — a function `k_list_contexts` depends on directly, and
+which (via `tools/__init__.py`'s import chain: `tools/__init__.py` → `tools/contexts.py` →
+`..contexts` → `.kubeconfig`) the entire `k8s_mcp.tools` package transitively depends on just to
+import. `git log --all --full-history -- src/k8s_mcp/contexts/kubeconfig.py` confirmed this
+file has never been part of any commit, on any branch, since the initial commit — it only ever
+existed on the local development machine's disk, invisible to git the entire time. Every local
+test run passed (412 passed, repeatedly, throughout this project's history) purely because the
+file happened to be present on disk; a fresh `git clone` or the README's own documented
+`uvx --from git+https://github.com/yvlasov/k8s-minimal-mcp k8s-mcp` install would have crashed
+immediately with `ModuleNotFoundError: No module named 'src.k8s_mcp.contexts.kubeconfig'`.
+**Discovered via:** a real GitHub Actions run on a fresh checkout (`.github/workflows/test.yml`,
+added by FR18) — the first time this repository's actual published state was ever exercised
+independently of the local development machine. Run `36329543548` failed at test collection
+with exactly that `ModuleNotFoundError`, across every affected test module.
+**Fix:** removed the `kubeconfig.*` line from `.gitignore` (the remaining `kubeconfig` and
+`*.kubeconfig` patterns already cover the realistic accidental-credential-file cases without
+matching a `.py` source file); force-added and committed `kubeconfig.py` (read directly before
+committing — confirmed no secrets, credentials, or personal cluster data, pure logic).
+**Verified:** local suite unaffected (412 passed, 9 skipped, before and after — the file's
+*content* was never the problem). Re-ran the actual GitHub Actions workflow after pushing: the
+"Run tests" step, which failed on the previous run, now passes on a genuinely fresh checkout
+(run `36329927716`).
+**Committed:** `5455914`.
+
 ### 48. `k_apply`/`k_patch`/`k_delete`/`k_logs`/`k_get_helm_release`'s tests never asserted `-n <namespace>` reaches kubectl args
 
 **File:** `tests/unit/test_tools_apply.py`, `test_tools_patch.py`, `test_tools_delete.py`,

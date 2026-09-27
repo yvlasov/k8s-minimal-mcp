@@ -116,14 +116,14 @@ verified behavior-preserving fix, not a risk.
 non-behavioral by tracing `resolver.py`'s actual return shapes; this is a real coverage gap in
 the tooling itself, not a code defect.
 
-**Addendum, found in the same review pass (2026-09-27):** `uv run ruff check src` currently
-**fails** — one import-sort error (`I001`) in `src/k8s_mcp/errors/__init__.py`, introduced when
+**Addendum, found in the same review pass (2026-09-27), now fixed:** `uv run ruff check src`
+failed — one import-sort error (`I001`) in `src/k8s_mcp/errors/__init__.py`, introduced when
 FR19's package split re-exported FR14's `ERROR_INVALID_GREP_PATTERN`/`invalid_grep_pattern`
-without re-running the sorter. Trivial and auto-fixable (`ruff check --fix src`, zero behavior
-change), but it means `.github/workflows/test.yml` (FR18) would currently fail its `ruff check`
-step on the very first real push/PR that triggers it — the "all checks passed" claims in
-`CHANGELOG.md`'s FR16/FR19 entries were true only at the moment each was written, not
-re-verified after the later change that broke them.
+without re-running the sorter — confirmed to actually break `.github/workflows/test.yml`'s
+`ruff check` step on a real push (run `36329927716`), not just a local prediction. Fixed via
+`ruff check --fix src` (pure alphabetical reorder, zero semantic change — verified via diff);
+CI green afterward. The `disable_error_code`/mypy problem this issue is actually about remains
+OPEN.
 
 ---
 
@@ -182,6 +182,7 @@ in `CHANGELOG.md`.
 | 46 | `k_exec` never passes `-n <namespace>` to kubectl — every call runs against the context's default namespace | `tools/exec_.py`, `test_tools_exec.py` |
 | 47 | `kubectl/runner.py` — the single seam that enforces R3's mandatory `--context` — had zero direct test coverage | `tests/unit/test_runner.py` |
 | 48 | `k_apply`/`k_patch`/`k_delete`/`k_logs`'s tests never asserted `-n <namespace>` reaches kubectl args — latent test gap | `tests/unit/test_tools_apply.py`, `test_tools_patch.py`, `test_tools_delete.py`, `test_tools_logs.py`, `test_tools_get_helm_release.py` |
+| 50 | `.gitignore`'s `kubeconfig.*` pattern excluded `src/k8s_mcp/contexts/kubeconfig.py` from every commit since the initial commit — published repo never actually importable | `.gitignore`, `src/k8s_mcp/contexts/kubeconfig.py` |
 
 **Issue 22 note:** unlike the others above, Issue 22 recurred 9 times before being addressed
 structurally rather than patched once — see `CHANGELOG.md`'s "Documentation Process" section
