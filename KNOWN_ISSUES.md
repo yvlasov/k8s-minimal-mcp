@@ -53,8 +53,8 @@ implemented" label written before it was actually true). A Status line may not c
 | FR18 | Add CI (GitHub Actions) running the test suite on push/PR | Done — see CHANGELOG.md | PRD §15 FR18 |
 | FR19 | Split `errors.py` (306 lines) into a package by error domain — low priority | Done — see CHANGELOG.md | PRD §15 FR19 |
 | FR20 | Rename `jsonpath_template`→`jsonpath`, drop `output="jsonpath"`, unconditional precedence over `output` | Done | PRD §15 FR20, SPEC §8 FR20 |
-| FR21 | Distinguishable error codes: timeout/connectivity, authentication vs. authorization, kubectl-level argument failures | Proposed | PRD §15 FR21, SPEC §8 FR21 |
-| FR22 | Emit multiline tool output (`data.output`) as a JSON array of lines instead of an escaped string — the escaped form defeats grep/line-addressable reads on spilled-over tool-output files | Proposed | PRD §15 FR22, SPEC §8 FR22 |
+| FR21 | Distinguishable error codes: timeout/connectivity, authentication vs. authorization, kubectl-level argument failures | Done — see CHANGELOG.md | PRD §15 FR21, SPEC §8 FR21 |
+| FR22 | Emit multiline tool output (`data.output`) as a JSON array of lines instead of an escaped string — the escaped form defeats grep/line-addressable reads on spilled-over tool-output files | Done — see CHANGELOG.md | PRD §15 FR22, SPEC §8 FR22 |
 
 ---
 
