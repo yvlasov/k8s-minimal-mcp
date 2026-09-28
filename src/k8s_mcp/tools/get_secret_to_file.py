@@ -87,7 +87,7 @@ def handle_get_secret_to_file(
 
     # R8: Secrets are always namespaced — standard resolve/validate.
     res = resolve(context, "secrets", discovery_cache=discovery_cache)
-    if isinstance(res, dict) and "error" in res:
+    if isinstance(res, dict):
         return envelope(res, context, "k_get_secret_to_file", success=False)
 
     validation = validate(res, "get", namespace)

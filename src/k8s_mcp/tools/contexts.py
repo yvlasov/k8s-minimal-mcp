@@ -16,7 +16,7 @@ from ..output import envelope, envelope_list_contexts
 def handle_list_contexts(context: str) -> dict[str, Any]:
     """Handle a k_list_contexts call."""
     result = list_kubeconfig_contexts()
-    if isinstance(result, dict) and "error" in result:
+    if isinstance(result, dict):
         return envelope(result, context, "k_list_contexts", success=False)
 
     return envelope_list_contexts(result, context)

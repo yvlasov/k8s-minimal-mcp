@@ -151,7 +151,7 @@ def handle_apply(
 
     # Resolve kind → GVK for validation (R8)
     res = resolve(context, kind, discovery_cache=discovery_cache)
-    if isinstance(res, dict) and "error" in res:
+    if isinstance(res, dict):
         return envelope(res, context, "k_apply", success=False)
 
     resource_meta = res

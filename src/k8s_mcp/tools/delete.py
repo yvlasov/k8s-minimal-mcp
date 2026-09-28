@@ -29,7 +29,7 @@ def handle_delete(
     """Handle a k_delete call."""
     # Resolve resource → GVK
     res = resolve(context, resource, discovery_cache=discovery_cache)
-    if isinstance(res, dict) and "error" in res:
+    if isinstance(res, dict):
         return envelope(res, context, "k_delete", success=False)
 
     resource_meta = res

@@ -30,7 +30,7 @@ def handle_exec(
     """Handle a k_exec call."""
     # Pods are always in the core table
     res = resolve(context, "pods", discovery_cache=discovery_cache)
-    if isinstance(res, dict) and "error" in res:
+    if isinstance(res, dict):
         return envelope(res, context, "k_exec", success=False)
 
     resource_meta = res

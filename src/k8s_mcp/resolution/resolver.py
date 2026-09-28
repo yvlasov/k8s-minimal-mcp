@@ -72,7 +72,7 @@ def resolve(
         cached = discovery_cache.get(context)
         if cached is None:
             refresh_result = discovery_cache.refresh(context)
-            if isinstance(refresh_result, dict) and "error" in refresh_result:
+            if isinstance(refresh_result, dict):
                 return refresh_result
             cached = cast(list[ResourceMeta], refresh_result)
         # cached is now list[ResourceMeta] | None

@@ -214,6 +214,7 @@ Loaded once at startup into `list[ResourceMeta]`. Discovery-cache entries (`reso
 - **`kubectl` subprocess calls set an explicit timeout** and capture stderr separately from stdout — required for `kubectl/errors.py` to map failures to §7 error codes rather than surfacing raw kubectl text.
 - **Logging of mutating calls** (`apply`, `patch`, `delete`, `exec`) goes through a single logging call site in `server.py` — matching PRD §13's open "audit/logging sink" question; stub this now so it's one place to wire a real sink later, but don't over-build it until that question resolves.
 - **Doc updates are part of "done," not a follow-up.** SPEC §2's Module Layout tree, PRD §6's Tool Specification table, and PRD §12's tool-count paragraph must be updated in the same change that ships a new tool/param — see `KNOWN_ISSUES.md`'s Definition of Done checklist (added after this drifted nine times — `CHANGELOG.md`'s "Documentation Process" section has the history).
+- **Do not widen `disable_error_code` in `[tool.mypy]` to suppress a new failure.** Fix the annotation or narrow the type instead; a suppressed code category defeats the tool for every future file, not just the one that triggered it (see `KNOWN_ISSUES.md` Issue 49).
 
 ---
 

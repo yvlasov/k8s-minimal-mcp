@@ -30,7 +30,7 @@ def handle_describe(
     grep_compiled = None
     if grep:
         grep_result = compile_grep_pattern(grep, ignore_case=grep_ignore_case)
-        if isinstance(grep_result, dict) and "error" in grep_result:
+        if isinstance(grep_result, dict):
             from ..errors import invalid_grep_pattern
             return envelope(
                 invalid_grep_pattern(context, grep, detail=grep_result["error"]),
@@ -40,7 +40,7 @@ def handle_describe(
 
     # Resolve resource → GVK
     res = resolve(context, resource, discovery_cache=discovery_cache)
-    if isinstance(res, dict) and "error" in res:
+    if isinstance(res, dict):
         return envelope(res, context, "k_describe", success=False)
 
     resource_meta = res

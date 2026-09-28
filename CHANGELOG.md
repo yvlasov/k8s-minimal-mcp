@@ -271,6 +271,21 @@ actual trigger. Bypasses pruning/bounding, returns the raw kubectl jsonpath stri
 
 ## Fixed Issues
 
+### 49. FR16's `mypy` config disabled its own error codes, silently defeating `disallow_untyped_defs`/`warn_return_any`
+
+**File:** `pyproject.toml`, `resolution/resolver.py`, `tools/*.py` (9 files), `resolution/core_table.py`, `tools/list_resources.py`, `server.py`
+**Severity:** High — the type-checking tooling FR16 added was fully inert.
+**Root cause:** `disable_error_code = ["union-attr", "arg-type", "no-untyped-def", "no-any-return", "assignment"]` included the exact codes `disallow_untyped_defs`/`warn_return_any` produce, making both options no-ops.
+**Fix:**
+1. Simplified all 16 `isinstance(x, dict) and "error" in x` guards to `isinstance(x, dict)` — the `"error" in x` clause was dead weight (every dict returned by `resolve()`/`validate()`/`DiscoveryCache` helpers always carries `"error"`), and its presence blocked mypy's type narrowing.
+2. Fixed 4 remaining individual errors: `core_table.py` (`Traversable` annotation, removed stale `# type: ignore[operator]`), `list_resources.py` (added `ResourceMeta` annotation), `server.py` (added `Callable[..., dict[str, Any]]` to `handler` param).
+3. Set `disable_error_code = []` — mypy now reports real errors.
+4. Added regression note to `SPEC.md` §6: do not widen `disable_error_code` to suppress a new failure.
+
+412 passed, 9 skipped. `uv run mypy src` → 0 errors. `uv run ruff check src` → clean.
+
+Comitted `TODO`.
+
 ### 50. `.gitignore` excluded `src/k8s_mcp/contexts/kubeconfig.py` from every commit since the repo's initial commit
 
 **File:** `.gitignore`, `src/k8s_mcp/contexts/kubeconfig.py`

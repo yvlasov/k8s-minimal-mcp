@@ -12,6 +12,7 @@ from typing import Any
 
 from ..output import envelope
 from ..resolution.discovery import DiscoveryCache
+from ..resolution.models import ResourceMeta
 
 
 def _filter_resources(
@@ -33,7 +34,7 @@ def _filter_resources(
     ]
 
 
-def _serialize_resource(r) -> dict[str, Any]:
+def _serialize_resource(r: ResourceMeta) -> dict[str, Any]:
     """Serialize a ResourceMeta to a plain dict."""
     return {
         "name": r.canonical,
@@ -61,7 +62,7 @@ def handle_list_resources(
     resources = discovery_cache.get(context)
     if resources is None:
         result = discovery_cache.refresh(context)
-        if isinstance(result, dict) and "error" in result:
+        if isinstance(result, dict):
             return envelope(result, context, "k_list_resources", success=False)
         resources = result
 

@@ -42,7 +42,7 @@ def handle_logs(
     grep_compiled = None
     if grep:
         grep_result = compile_grep_pattern(grep, ignore_case=grep_ignore_case)
-        if isinstance(grep_result, dict) and "error" in grep_result:
+        if isinstance(grep_result, dict):
             from ..errors import invalid_grep_pattern
             return envelope(
                 invalid_grep_pattern(context, grep, detail=grep_result["error"]),
@@ -52,7 +52,7 @@ def handle_logs(
 
     # Pods are always in the core table
     res = resolve(context, "pods", discovery_cache=discovery_cache)
-    if isinstance(res, dict) and "error" in res:
+    if isinstance(res, dict):
         return envelope(res, context, "k_logs", success=False)
 
     resource_meta = res

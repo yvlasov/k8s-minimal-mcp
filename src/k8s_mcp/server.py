@@ -14,6 +14,7 @@ Namespace allowlist is enforced per-call in tools, not at registration.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from fastmcp import FastMCP
@@ -45,7 +46,7 @@ _SHIP_EXEC = True      # TBD — ship k_exec at admin for now
 
 def _dispatch(
     tool_verb: str,
-    handler,
+    handler: Callable[..., dict[str, Any]],
     context: str,
     discovery_cache: DiscoveryCache | None,
     allow_namespaces: list[str] | None,

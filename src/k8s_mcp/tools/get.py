@@ -85,7 +85,7 @@ def handle_get(
     grep_compiled = None
     if grep:
         grep_result = compile_grep_pattern(grep, ignore_case=grep_ignore_case)
-        if isinstance(grep_result, dict) and "error" in grep_result:
+        if isinstance(grep_result, dict):
             from ..errors import invalid_grep_pattern
             return envelope(
                 invalid_grep_pattern(context, grep, detail=grep_result["error"]),
@@ -97,7 +97,7 @@ def handle_get(
     parsed_selector: list[Any] | None = None
     if annotation_selector:
         sel_result = parse_annotation_selector(annotation_selector)
-        if isinstance(sel_result, dict) and "error" in sel_result:
+        if isinstance(sel_result, dict):
             return envelope(
                 invalid_selector(context, annotation_selector, detail=sel_result["error"]),
                 context, "k_get", success=False,
@@ -106,7 +106,7 @@ def handle_get(
 
     # Resolve resource → GVK
     res = resolve(context, resource, discovery_cache=discovery_cache)
-    if isinstance(res, dict) and "error" in res:
+    if isinstance(res, dict):
         return envelope(res, context, "k_get", success=False)
 
     resource_meta = res

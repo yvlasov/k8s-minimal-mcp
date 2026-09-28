@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import importlib.resources
 import tomllib
-from pathlib import Path
+from importlib.resources.abc import Traversable
 from typing import Any
 
 from .models import ResourceMeta
@@ -26,6 +26,6 @@ def _load_toml(raw: bytes) -> list[ResourceMeta]:
 def load_core_table() -> list[ResourceMeta]:
     """Load and return the core resource table."""
     pkg = importlib.resources.files("k8s_mcp")
-    toml_path: Path = pkg / _DATA_FILE  # type: ignore[operator]
+    toml_path: Traversable = pkg / _DATA_FILE
     with toml_path.open("rb") as f:
         return _load_toml(f.read())
