@@ -312,7 +312,7 @@ class TestHandleGetWide:
                             output="wide")
 
         assert result["success"] is True
-        assert result["data"]["output"] == "NAME       READY   STATUS    RESTARTS   AGE\nmypod      1/1     Running   0          10d"
+        assert result["data"]["output"] == ["NAME       READY   STATUS    RESTARTS   AGE", "mypod      1/1     Running   0          10d"]
         assert mock_run.call_args[1]["output_format"] == "wide"
 
     @patch("src.k8s_mcp.tools.get.resolve")
@@ -340,7 +340,7 @@ class TestHandleGetWide:
 
         assert result["success"] is True
         assert "prune" not in str(mock_run.call_args)
-        assert isinstance(result["data"]["output"], str)
+        assert isinstance(result["data"]["output"], list)
 
     @patch("src.k8s_mcp.tools.get.resolve")
     def test_nested_brace_jsonpath_rejected(self, mock_resolve, pod_meta):
@@ -417,8 +417,8 @@ class TestHandleGetGrep:
         result = handle_get("test-context", "pods", namespace="default", output="wide", grep="Error")
 
         assert result["success"] is True
-        assert "Error" in result["data"]["output"]
-        assert "Running" not in result["data"]["output"]
+        assert any("Error" in line for line in result["data"]["output"])
+        assert not any("Running" in line for line in result["data"]["output"])
         assert result["data"]["_filtered"]["matched"] == 1
         assert result["data"]["_filtered"]["total"] == 3
 
@@ -431,7 +431,7 @@ class TestHandleGetGrep:
         result = handle_get("test-context", "pods", namespace="default", output="wide", grep="zzznotfound")
 
         assert result["success"] is True
-        assert result["data"]["output"] == ""
+        assert result["data"]["output"] == []
         assert result["data"]["_filtered"]["matched"] == 0
         assert result["data"]["_filtered"]["total"] == 2
 
@@ -453,7 +453,7 @@ class TestHandleGetGrep:
         result = handle_get("test-context", "pods", namespace="default", output="wide", grep="running", grep_ignore_case=True)
 
         assert result["success"] is True
-        assert "RUNNING" in result["data"]["output"]
+        assert any("RUNNING" in line for line in result["data"]["output"])
         assert result["data"]["_filtered"]["matched"] == 1
 
     @patch("src.k8s_mcp.tools.get.resolve")

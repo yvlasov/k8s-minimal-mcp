@@ -11,6 +11,20 @@ Ordered newest-first within each section, matching the order these were actually
 
 ## Feature Requests
 
+### FR22 — Emit multiline tool output as a JSON array of lines instead of an escaped string
+
+**Files:** `resolution/grep_filter.py`, `tools/get.py`, `tools/describe.py`, `output/bounding.py`, `tools/logs.py`, `tests/unit/test_grep_filter.py`, `tests/unit/test_bounding.py`, `tests/unit/test_tools_get.py`, `tests/unit/test_tools_describe.py`, `tests/unit/test_tools_logs.py`
+
+**What changed:**
+1. **`filter_lines()`:** signature changed from `(text: str, ...) -> tuple[str, int, int]` to `(lines: list[str], ...) -> tuple[list[str], int, int]` — callers pass `.splitlines()`'d lists, get matched lines back as a list.
+2. **`k_get(output="wide")` / `k_describe`:** `data.output` is now `list[str]` (was a `"\n"`-joined string).
+3. **`bound_logs()`:** `logs` key is now `list[str]` in both the truncated and untruncated branches (was `"\n".join(...)` / raw `stdout`).
+4. **`k_logs`:** passes the already-`list[str]` `bounded["logs"]` straight into `filter_lines()` — no `.splitlines()` at the call site.
+
+416 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
+
+Committed `TODO`.
+
 ### FR21 — Distinguishable error codes for timeout/connectivity, authentication vs. authorization, and kubectl-level argument failures
 
 **Files:** `errors/core.py`, `errors/__init__.py`, `kubectl/runner.py`, `kubectl/errors.py`, `tests/unit/test_runner.py`, `tests/unit/test_kubectl_errors.py`, `PRD.md` §7

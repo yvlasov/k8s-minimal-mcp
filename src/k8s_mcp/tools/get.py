@@ -148,10 +148,10 @@ def handle_get(
         result = run_kubectl_checked(context, args, output_format="wide")
         if "error" in result:
             return envelope(result, context, "k_get", success=False)
-        response: dict[str, Any] = {"output": result["stdout"]}
+        response: dict[str, Any] = {"output": result["stdout"].splitlines()}
         if grep_compiled is not None:
-            filtered_text, matched, total = filter_lines(result["stdout"], grep_compiled)  # type: ignore[arg-type]
-            response["output"] = filtered_text
+            filtered_lines, matched, total = filter_lines(result["stdout"].splitlines(), grep_compiled)
+            response["output"] = filtered_lines
             response["_filtered"] = {"matched": matched, "total": total}
         return envelope(response, context, "k_get", success=True)
 

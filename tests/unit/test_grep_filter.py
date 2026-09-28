@@ -38,48 +38,48 @@ class TestCompileGrepPattern:
 
 class TestFilterLines:
     def test_filters_matching_lines(self):
-        text = "line 1\nerror here\nline 3\nanother error"
+        lines = ["line 1", "error here", "line 3", "another error"]
         pattern = re.compile("error")
-        filtered, matched, total = filter_lines(text, pattern)
-        assert filtered == "error here\nanother error"
+        filtered, matched, total = filter_lines(lines, pattern)
+        assert filtered == ["error here", "another error"]
         assert matched == 2
         assert total == 4
 
     def test_no_matches(self):
-        text = "line 1\nline 2\nline 3"
+        lines = ["line 1", "line 2", "line 3"]
         pattern = re.compile("notfound")
-        filtered, matched, total = filter_lines(text, pattern)
-        assert filtered == ""
+        filtered, matched, total = filter_lines(lines, pattern)
+        assert filtered == []
         assert matched == 0
         assert total == 3
 
     def test_all_match(self):
-        text = "error1\nerror2\nerror3"
+        lines = ["error1", "error2", "error3"]
         pattern = re.compile("error")
-        filtered, matched, total = filter_lines(text, pattern)
-        assert filtered == text
+        filtered, matched, total = filter_lines(lines, pattern)
+        assert filtered == lines
         assert matched == 3
         assert total == 3
 
     def test_empty_input(self):
         pattern = re.compile("anything")
-        filtered, matched, total = filter_lines("", pattern)
-        assert filtered == ""
+        filtered, matched, total = filter_lines([], pattern)
+        assert filtered == []
         assert matched == 0
         assert total == 0
 
     def test_single_line(self):
-        text = "only line"
+        lines = ["only line"]
         pattern = re.compile("only")
-        filtered, matched, total = filter_lines(text, pattern)
-        assert filtered == "only line"
+        filtered, matched, total = filter_lines(lines, pattern)
+        assert filtered == ["only line"]
         assert matched == 1
         assert total == 1
 
     def test_multiline_preserves_order(self):
-        text = "a\nb\nc\nd\ne"
+        lines = ["a", "b", "c", "d", "e"]
         pattern = re.compile("[bd]")
-        filtered, matched, total = filter_lines(text, pattern)
-        assert filtered == "b\nd"
+        filtered, matched, total = filter_lines(lines, pattern)
+        assert filtered == ["b", "d"]
         assert matched == 2
         assert total == 5

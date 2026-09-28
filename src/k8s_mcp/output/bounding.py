@@ -62,14 +62,14 @@ def bound_logs(stdout: str, *, tail: int | None = None, limit_bytes: int | None 
 
     if tail is not None and tail > 0 and len(lines) > tail:
         truncated_lines = lines[-tail:]
-        logs_out = "\n".join(truncated_lines)
+        logs_out: list[str] = truncated_lines
         bound: dict[str, Any] = {
             "tail": tail,
             "total_lines": len(lines),
             "truncated": True,
         }
     else:
-        logs_out = stdout
+        logs_out = lines
         bound = {
             "tail": tail if tail else len(lines),
             "truncated": False,

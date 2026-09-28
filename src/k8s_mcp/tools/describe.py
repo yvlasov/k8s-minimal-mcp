@@ -62,13 +62,13 @@ def handle_describe(
         return envelope(result, context, "k_describe", success=False)
 
     response: dict[str, Any] = {
-        "output": result["stdout"],
+        "output": result["stdout"].splitlines(),
     }
 
     # Apply grep filter to the output text field only
     if grep_compiled is not None:
-        filtered_text, matched, total = filter_lines(result["stdout"], grep_compiled)  # type: ignore[arg-type]
-        response["output"] = filtered_text
+        filtered_lines, matched, total = filter_lines(result["stdout"].splitlines(), grep_compiled)
+        response["output"] = filtered_lines
         response["_filtered"] = {"matched": matched, "total": total}
 
     return envelope(response, context, "k_describe", success=True)

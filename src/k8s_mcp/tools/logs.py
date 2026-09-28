@@ -93,8 +93,8 @@ def handle_logs(
 
     # Apply grep filter to the text field only, before _bound/_filtered metadata assembly
     if grep_compiled is not None:
-        filtered_text, matched, total = filter_lines(bounded["logs"], grep_compiled)  # type: ignore[arg-type]
-        bounded["logs"] = filtered_text
+        filtered_lines, matched, total = filter_lines(bounded["logs"], grep_compiled)
+        bounded["logs"] = filtered_lines
         bounded["_filtered"] = {"matched": matched, "total": total}
 
     return envelope(bounded, context, "k_logs", success=True)

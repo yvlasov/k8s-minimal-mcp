@@ -55,25 +55,23 @@ class TestBoundLogs:
         assert result["_bound"]["tail"] == 10
         assert result["_bound"]["total_lines"] == 100
         assert result["_bound"]["truncated"] is True
-        lines = result["logs"].splitlines()
-        assert len(lines) == 10
-        assert lines[0] == "line-90"
+        assert result["logs"] == [f"line-{i}" for i in range(90, 100)]
 
     def test_no_tail(self):
         stdout = "line-1\nline-2\nline-3"
         result = bound_logs(stdout)
         assert result["_bound"]["truncated"] is False
-        assert result["logs"] == stdout
+        assert result["logs"] == ["line-1", "line-2", "line-3"]
 
     def test_tail_larger_than_lines(self):
         stdout = "line-1\nline-2"
         result = bound_logs(stdout, tail=100)
         assert result["_bound"]["truncated"] is False
-        assert result["logs"] == stdout
+        assert result["logs"] == ["line-1", "line-2"]
 
     def test_empty_logs(self):
         result = bound_logs("")
-        assert result["logs"] == ""
+        assert result["logs"] == []
         assert result["_bound"]["truncated"] is False
 
     def test_limit_bytes_truncated(self):

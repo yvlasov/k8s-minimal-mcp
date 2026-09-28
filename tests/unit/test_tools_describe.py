@@ -66,7 +66,7 @@ class TestHandleDescribe:
         result = handle_describe("test-context", "pods", name="mypod", namespace="default")
 
         assert result["success"] is True
-        assert result["data"]["output"] == "Name:         mypod\nNamespace:    default\nStatus:       Running"
+        assert result["data"]["output"] == ["Name:         mypod", "Namespace:    default", "Status:       Running"]
 
     @patch("src.k8s_mcp.tools.describe.resolve")
     def test_describe_resolve_error(self, mock_resolve, pod_meta):
@@ -134,7 +134,7 @@ class TestHandleDescribeFullyQualifiedResource:
         result = handle_describe("test-context", "pods", name="mypod", namespace="default", grep="Namespace")
 
         assert result["success"] is True
-        assert result["data"]["output"] == "Namespace:    default"
+        assert result["data"]["output"] == ["Namespace:    default"]
         assert result["data"]["_filtered"]["matched"] == 1
         assert result["data"]["_filtered"]["total"] == 3
 
@@ -147,7 +147,7 @@ class TestHandleDescribeFullyQualifiedResource:
         result = handle_describe("test-context", "pods", name="mypod", namespace="default", grep="zzznotfound")
 
         assert result["success"] is True
-        assert result["data"]["output"] == ""
+        assert result["data"]["output"] == []
         assert result["data"]["_filtered"]["matched"] == 0
 
     @patch("src.k8s_mcp.tools.describe.resolve")
@@ -168,6 +168,6 @@ class TestHandleDescribeFullyQualifiedResource:
         result = handle_describe("test-context", "pods", name="mypod", namespace="default", grep="name", grep_ignore_case=True)
 
         assert result["success"] is True
-        assert "NAME:         mypod" in result["data"]["output"]
-        assert "Namespace:    default" in result["data"]["output"]
+        assert any("NAME:         mypod" in line for line in result["data"]["output"])
+        assert any("Namespace:    default" in line for line in result["data"]["output"])
         assert result["data"]["_filtered"]["matched"] == 2

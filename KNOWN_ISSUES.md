@@ -86,15 +86,15 @@ exact code shape before implementing.
       updated per SPEC.md §8 FR21
 - [x] PRD.md §7: add the 6 new error codes and backfill the pre-existing `kubectl_failure` gap
 
-**FR22** — `data.output`/`logs` as JSON array of lines (see SPEC.md §8 FR22):
-- [ ] `resolution/grep_filter.py`: `filter_lines()` takes/returns `list[str]` instead of a
+**FR22** — `data.output`/`logs` as JSON array of lines (done, see CHANGELOG.md):
+- [x] `resolution/grep_filter.py`: `filter_lines()` takes/returns `list[str]` instead of a
       joined `str`
-- [ ] `tools/get.py`, `tools/describe.py`: emit `result["stdout"].splitlines()` instead of the
+- [x] `tools/get.py`, `tools/describe.py`: emit `result["stdout"].splitlines()` instead of the
       raw `stdout` string under `output`
-- [ ] `output/bounding.py`'s `bound_logs()`: emit `list[str]` under `logs` instead of
+- [x] `output/bounding.py`'s `bound_logs()`: emit `list[str]` under `logs` instead of
       `"\n".join(...)` / raw `stdout`
-- [ ] `tools/logs.py`: pass the already-split `bounded["logs"]` straight into `filter_lines()`
-- [ ] Update `test_grep_filter.py`, `test_bounding.py`, `test_tools_get.py`,
+- [x] `tools/logs.py`: pass the already-split `bounded["logs"]` straight into `filter_lines()`
+- [x] Update `test_grep_filter.py`, `test_bounding.py`, `test_tools_get.py`,
       `test_tools_describe.py`, `test_tools_logs.py` — all currently assert string output
 
 ---

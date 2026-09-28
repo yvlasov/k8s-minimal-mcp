@@ -203,7 +203,7 @@ class TestHandleLogs:
         result = handle_logs("test-context", "mypod", namespace="default", grep="error")
 
         assert result["success"] is True
-        assert result["data"]["logs"] == "error here\nerror again"
+        assert result["data"]["logs"] == ["error here", "error again"]
         assert result["data"]["_filtered"]["matched"] == 2
         assert result["data"]["_filtered"]["total"] == 4
 
@@ -216,7 +216,7 @@ class TestHandleLogs:
         result = handle_logs("test-context", "mypod", namespace="default", grep="notfound")
 
         assert result["success"] is True
-        assert result["data"]["logs"] == ""
+        assert result["data"]["logs"] == []
         assert result["data"]["_filtered"]["matched"] == 0
         assert result["data"]["_filtered"]["total"] == 2
 
@@ -239,7 +239,7 @@ class TestHandleLogs:
         result = handle_logs("test-context", "mypod", namespace="default", grep="error", grep_ignore_case=True)
 
         assert result["success"] is True
-        assert result["data"]["logs"] == "ERROR here\nERROR again"
+        assert result["data"]["logs"] == ["ERROR here", "ERROR again"]
         assert result["data"]["_filtered"]["matched"] == 2
 
     @patch("src.k8s_mcp.tools.logs.resolve")
@@ -269,5 +269,5 @@ class TestHandleLogs:
         assert result["success"] is True
         assert result["data"]["_bound"]["truncated"] is True
         assert "message" in result["data"]["_bound"]
-        assert result["data"]["logs"] == ""
+        assert result["data"]["logs"] == []
         assert result["data"]["_filtered"]["matched"] == 0

@@ -23,13 +23,12 @@ def compile_grep_pattern(pattern: str, *, ignore_case: bool = False) -> re.Patte
         return {"error": f"invalid grep pattern: {exc}"}
 
 
-def filter_lines(text: str, compiled: re.Pattern[str]) -> tuple[str, int, int]:
-    """Filter *text* to lines matching *compiled*, returning ``(filtered_text, matched, total)``.
+def filter_lines(lines: list[str], compiled: re.Pattern[str]) -> tuple[list[str], int, int]:
+    """Filter *lines* to those matching *compiled*, returning ``(matched_lines, matched, total)``.
 
     Applied identically by every caller so ``_filtered`` reporting is
     byte-for-byte consistent across tools.
     """
-    lines = text.splitlines()
     total = len(lines)
     matched_lines = [line for line in lines if compiled.search(line)]
-    return "\n".join(matched_lines), len(matched_lines), total
+    return matched_lines, len(matched_lines), total
