@@ -189,6 +189,8 @@ class TestHandleApplyOutputFormat:
 
         assert result["success"] is False
         assert result["error"] == "invalid_jsonpath_template"
+        assert result["jsonpath"] == "{.items[*].{a,b}}"
+        assert "jsonpath_template" not in result
         assert "Nested braces" in result.get("detail", "")
 
     @patch("src.k8s_mcp.tools.apply.resolve")

@@ -156,7 +156,7 @@ def invalid_output(
     *,
     detail: str | None = None,
 ) -> dict[str, Any]:
-    """k_get/k_apply/k_patch: output=jsonpath requested without jsonpath_template."""
+    """k_get/k_apply/k_patch: output=jsonpath requested without jsonpath."""
     out = _base(context, ERROR_INVALID_OUTPUT)
     out["output"] = output
     if detail:
@@ -195,9 +195,9 @@ def invalid_jsonpath_template(
     *,
     detail: str | None = None,
 ) -> dict[str, Any]:
-    """k_get/k_apply/k_patch: jsonpath_template contains nested braces (invalid syntax)."""
+    """k_get/k_apply/k_patch: jsonpath contains nested braces (invalid syntax)."""
     out = _base(context, ERROR_INVALID_JSONPATH_TEMPLATE)
-    out["jsonpath_template"] = template
+    out["jsonpath"] = template
     if detail:
         out["detail"] = detail
     return out

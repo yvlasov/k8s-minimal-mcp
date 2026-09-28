@@ -271,6 +271,20 @@ actual trigger. Bypasses pruning/bounding, returns the raw kubectl jsonpath stri
 
 ## Fixed Issues
 
+### 51. FR20's `jsonpath_template`→`jsonpath` rename missed `invalid_jsonpath_template()`'s response field and docstring
+
+**File:** `src/k8s_mcp/errors/core.py`, `tests/unit/test_tools_get.py`, `tests/unit/test_tools_apply.py`, `tests/unit/test_tools_patch.py`
+**Severity:** Medium — model-facing contract break: the error response field was still named `jsonpath_template` after FR20 renamed the param to `jsonpath`.
+**Root cause:** FR20's rename covered tool descriptions, error messages, and tests, but missed the `out["jsonpath_template"] = template` assignment and docstring in `errors/core.py:192-203`. No test caught it because the nested-brace regression tests only asserted on the error code, never the response field name.
+**Fix:**
+1. `errors/core.py`: `out["jsonpath_template"]` → `out["jsonpath"]`; updated both docstrings.
+2. Added `assert result["jsonpath"] == ...` and `assert "jsonpath_template" not in result` to all three nested-brace regression tests.
+3. Grep confirmed no other `_template` remnants in `errors/` (remaining hits are the error code constant and function name — stable identifiers, not response fields).
+
+412 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
+
+Comitted `TODO`.
+
 ### 49. FR16's `mypy` config disabled its own error codes, silently defeating `disallow_untyped_defs`/`warn_return_any`
 
 **File:** `pyproject.toml`, `resolution/resolver.py`, `tools/*.py` (9 files), `resolution/core_table.py`, `tools/list_resources.py`, `server.py`

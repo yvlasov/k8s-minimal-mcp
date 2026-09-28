@@ -60,42 +60,6 @@ implemented" label written before it was actually true). A Status line may not c
 
 ## OPEN (not yet fixed)
 
-### 51. FR20's `jsonpath_template`→`jsonpath` rename missed one call site: `invalid_jsonpath_template()`'s response field and docstring
-
-**File:** `src/k8s_mcp/errors/core.py:192-203`
-**Severity:** Medium — not a crash, but a model-facing contract break: a caller using the new
-`jsonpath` param who hits this error gets a response back with the field still named
-`jsonpath_template`, and the function's docstring still reads "jsonpath_template contains
-nested braces" — both stale artifacts of the pre-FR20 param name.
-**Root cause:** FR20's CHANGELOG entry claims the rename covers "tool descriptions, error
-messages, and tests" across `k_get`/`k_apply`/`k_patch`, but `invalid_jsonpath_template()` in
-`errors/core.py` was missed:
-```python
-def invalid_jsonpath_template(
-    ...
-) -> dict[str, Any]:
-    """k_get/k_apply/k_patch: jsonpath_template contains nested braces (invalid syntax)."""
-    ...
-    out["jsonpath_template"] = template
-```
-No test caught it because `test_tools_get.py`/`test_tools_apply.py`/`test_tools_patch.py`'s
-nested-brace regression tests (FR8/FR20) only assert on the error *code*
-(`invalid_jsonpath_template`), never on the response field name — so the rename gap is
-undetectable by the existing suite. This also means FR20's own PRD §15 success criterion #9
-("every `invalid_output` call site... carries a non-empty `detail`") and its "Done — verified"
-status are correct for `invalid_output` but the sibling `invalid_jsonpath_template` helper was
-never actually re-verified against the renamed param.
-**Proposed fix:**
-1. `errors/core.py`: rename `out["jsonpath_template"] = template` → `out["jsonpath"] = template`;
-   update the docstring's `jsonpath_template` reference → `jsonpath`.
-2. Add an assertion in each of the three nested-brace regression tests
-   (`test_tools_get.py`/`test_tools_apply.py`/`test_tools_patch.py`) that the response's
-   `jsonpath` key (not `jsonpath_template`) carries the template string — closes the exact gap
-   that let this slip through.
-3. Grep `errors/` for any other `_template` remnants before closing, in case the same miss
-   recurs elsewhere.
-**Status:** OPEN, not yet fixed. Found via a doc/code cross-audit (2026-09-27), not user-reported.
-
 ---
 
 ## TODO
@@ -104,12 +68,12 @@ Actionable checklists for the OPEN issue and Proposed FRs above. These are disti
 full plans, not a second copy of them — see the cross-referenced section for rationale and
 exact code shape before implementing.
 
-**Issue 51** — `jsonpath_template`→`jsonpath` field-name miss (see full write-up above):
-- [ ] `errors/core.py`: `out["jsonpath_template"] = template` → `out["jsonpath"] = template`;
+**Issue 51** — `jsonpath_template`→`jsonpath` field-name miss (fixed, see FIXED table):
+- [x] `errors/core.py`: `out["jsonpath_template"] = template` → `out["jsonpath"] = template`;
       fix the docstring's stale `jsonpath_template` reference
-- [ ] `test_tools_get.py`/`test_tools_apply.py`/`test_tools_patch.py`: assert the response's
+- [x] `test_tools_get.py`/`test_tools_apply.py`/`test_tools_patch.py`: assert the response's
       `jsonpath` key (not `jsonpath_template`) carries the template string
-- [ ] Grep `errors/` for any other `_template` remnants before closing
+- [x] Grep `errors/` for any other `_template` remnants before closing
 
 **FR21** — distinguishable error codes (see SPEC.md §8 FR21):
 - [ ] `errors/core.py`: add the 7 new error codes + `_base()`-shaped helpers
@@ -142,6 +106,7 @@ in `CHANGELOG.md`.
 
 | # | Title | File(s) |
 |---|---|---|
+| 51 | FR20's `jsonpath_template`→`jsonpath` rename missed `invalid_jsonpath_template()`'s response field and docstring | `errors/core.py`, `test_tools_get.py`, `test_tools_apply.py`, `test_tools_patch.py` |
 | 49 | FR16's `mypy` config disabled its own error codes, silently defeating `disallow_untyped_defs`/`warn_return_any` | `pyproject.toml`, `resolution/resolver.py`, `tools/*.py`, `resolution/core_table.py`, `tools/list_resources.py`, `server.py` |
 | 41 | No test exercised `server.py`'s `_dispatch()` path | `tests/unit/test_server.py`, `server.py` |
 | 40 | `k_auth_can_i` crashed on every real call (two bugs, three commits) | `tools/auth_can_i.py`, `server.py` |

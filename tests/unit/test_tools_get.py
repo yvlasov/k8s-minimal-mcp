@@ -351,6 +351,8 @@ class TestHandleGetWide:
 
         assert result["success"] is False
         assert result["error"] == "invalid_jsonpath_template"
+        assert result["jsonpath"] == "{.items[*].{involvedObject.kind,involvedObject.name}}"
+        assert "jsonpath_template" not in result
         assert "Nested braces" in result.get("detail", "")
         assert "bracket-list" in result.get("detail", "")
         assert "range" in result.get("detail", "")
