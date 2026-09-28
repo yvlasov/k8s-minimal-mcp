@@ -512,10 +512,10 @@ verbatim. Now: `.data`/`.stringData` → `{"redacted_keys": [...]}` when `kind =
   named `tool_verb` (not `verb`) specifically to avoid colliding with this tool's own `verb`
   domain argument (see `CHANGELOG.md` Issue 40).
 
-### FR14. `grep` — server-side text-filtering for unstructured-text tool output
+### FR14. `grep` — server-side text-filtering for unstructured-text tool output — **Done**
 
-**Status: Proposed, not yet accepted into v1 scope** — this section exists so the plan is
-ready to execute the moment it's accepted; do not start building from PRD §15 FR14 alone.
+**Status: Done** — implemented as planned below on `k_logs`, `k_describe`, and `k_get`
+(`output="wide"` only). See PRD.md §15 FR14 and `CHANGELOG.md` for the verification record.
 
 - **`errors.py`** — `ERROR_INVALID_GREP_PATTERN = "invalid_grep_pattern"` +
   `invalid_grep_pattern(context, pattern, *, detail=None)`, matching the
@@ -644,3 +644,137 @@ effect of the rename.
   column, only once this actually ships — until then §6 continues to describe current
   (`jsonpath_template`) reality, per this project's own established convention of not
   pre-editing §6 for unimplemented FRs.
+
+### FR21. Distinguishable error codes for timeout/connectivity, authentication vs. authorization, and kubectl-level argument failures
+
+**Status: Proposed, not yet accepted into v1 scope** — this section exists so the plan is
+ready to execute the moment it's accepted; do not start building from PRD §15 FR21 alone.
+
+- **`errors/core.py`:** six new code constants + thin `_base()`-shaped helpers, same shape as
+  every existing helper in this file (`context` first, code from `_base()`, optional `detail`):
+  - `ERROR_KUBECTL_TIMEOUT = "kubectl_timeout"` + `kubectl_timeout(context, *, timeout, command,
+    detail=None)`.
+  - `ERROR_KUBECTL_NOT_INSTALLED = "kubectl_not_installed"` + `kubectl_not_installed(context, *,
+    detail=None)`.
+  - `ERROR_KUBECTL_EXEC_ERROR = "kubectl_exec_error"` + `kubectl_exec_error(context, *,
+    detail)`.
+  - `ERROR_KUBECTL_UNREACHABLE = "kubectl_unreachable"` + `kubectl_unreachable(context, *,
+    raw_stderr)` — same parameter shape as the existing `object_not_found`/`kubectl_failure`
+    helpers that already take `raw_stderr`/`stderr`.
+  - `ERROR_AUTHENTICATION_FAILED = "authentication_failed"` + `authentication_failed(context, *,
+    raw_stderr)`.
+  - `ERROR_KUBECTL_INVALID_ARGUMENT = "kubectl_invalid_argument"` + `kubectl_invalid_argument(
+    context, *, raw_stderr)`.
+  - `ERROR_OBJECT_INVALID = "object_invalid"` + `object_invalid(context, *, raw_stderr)`.
+- **`kubectl/runner.py`:** `run_kubectl()`'s three exception branches replaced:
+  ```python
+  except subprocess.TimeoutExpired:
+      return kubectl_timeout(context, timeout=timeout, command=base_args)
+  except FileNotFoundError:
+      return kubectl_not_installed(context)
+  except OSError as e:
+      return kubectl_exec_error(context, detail=str(e))
+  ```
+  Import the three helpers from `..errors` (mirrors how `kubectl/errors.py` already imports
+  `kubectl_failure`/`object_not_found` from the same module). No signature change to
+  `run_kubectl()`/`run_kubectl_checked()` — only the exception-branch return values change
+  shape, from ad hoc dicts to the standard `{"context", "error", ...}` shape every other code
+  path already produces.
+- **`kubectl/errors.py`:** `map_kubectl_error()`'s pattern list extended and reordered — checked
+  in this order, first match wins, falling through to the existing `kubectl_failure` default
+  unchanged:
+  1. `"ambiguous"` → `ambiguous_resource` (unchanged, existing first check).
+  2. `"notfound"` / `"not found"` → `object_not_found` (unchanged).
+  3. **New:** `"unable to connect to the server"` / `"connection refused"` / `"no such host"` /
+     `"dial tcp"` → `kubectl_unreachable(context, raw_stderr=stderr)`.
+  4. **New:** `"x509:"` / `"must be logged in"`, or `"unauthorized"` **when `"forbidden"` is
+     not also present** → `authentication_failed(context, raw_stderr=stderr)`. Must run before
+     check 5 so a pure-authentication failure isn't miscaught by the broader authorization
+     check; must explicitly exclude stderr that also contains `"forbidden"` so a combined
+     message doesn't shadow the existing, more specific RBAC case.
+  5. `"forbidden"` (or `"unauthorized"` when `"forbidden"` is also present) → `access_denied`
+     (unchanged code, existing check — now runs after the authentication-only check above, not
+     before).
+  6. **New:** stderr starting with `"error: unknown flag"` / `"error: unknown shorthand flag"`
+     / `"error: unknown command"` → `kubectl_invalid_argument(context, raw_stderr=stderr)`.
+  7. **New:** `" is invalid: "` in stderr → `object_invalid(context, raw_stderr=stderr)`.
+  8. Default (unchanged): `kubectl_failure`.
+  All substring checks stay case-insensitive on `stderr.lower()`, matching the existing
+  convention in this function. Exact substrings (especially the connectivity and x509 patterns)
+  should be re-validated against real kubectl stderr samples during implementation — the set
+  above is a reasoned starting point from documented kubectl error wording, not verified against
+  a live cluster this session (see PRD §15 FR21's note on scope).
+- **Tests:**
+  - `tests/unit/test_runner.py`: `test_timeout_expired_error`/`test_file_not_found_error`/
+    `test_oserror_error` (both `TestRunKubectl` and the `...Checked` passthrough variants)
+    updated to assert `result["error"] == "kubectl_timeout"` /
+    `"kubectl_not_installed"` / `"kubectl_exec_error"` and `result["context"] == "ctx"`,
+    replacing the current free-text substring assertions.
+  - `tests/unit/test_kubectl_errors.py`: `test_unauthorized` updated to assert
+    `"authentication_failed"` (was `"access_denied"`) — this is the one intentional behavior
+    change in the whole FR, called out explicitly so it isn't mistaken for a regression. New
+    cases: `test_unreachable` (`"Unable to connect to the server: dial tcp ..."` →
+    `kubectl_unreachable`), `test_forbidden_with_unauthorized_wording` (a combined message
+    containing both `"forbidden"` and `"unauthorized"` → still `access_denied`, guarding the
+    ordering rule), `test_invalid_argument` (`"error: unknown flag: --bogus"` →
+    `kubectl_invalid_argument`), `test_object_invalid` (`'Deployment.apps "x" is invalid: spec.replicas: Invalid value'`
+    → `object_invalid`). Existing `test_forbidden`/`test_not_found`/`test_ambiguous_resource`/
+    `test_default_kubectl_failure` unchanged.
+- **Docs (same change, not a follow-up — Definition of Done):** PRD.md §7's error-codes list
+  gets the six new codes added; `kubectl_failure` (already implemented but never listed there)
+  added at the same time, closing that pre-existing documentation gap.
+
+### FR22. Emit multiline tool output as a JSON array of lines instead of an escaped string
+
+**Status: Proposed, not yet accepted into v1 scope** — this section exists so the plan is
+ready to execute the moment it's accepted; do not start building from PRD §15 FR22 alone.
+
+- **`resolution/grep_filter.py`:** `filter_lines()`'s signature changes from
+  `filter_lines(text: str, compiled: re.Pattern[str]) -> tuple[str, int, int]` to
+  `filter_lines(lines: list[str], compiled: re.Pattern[str]) -> tuple[list[str], int, int]` —
+  callers now pass an already-`.splitlines()`'d list instead of raw text, and get the matched
+  lines back as a list instead of a `"\n"`-joined string. Internals: drop the
+  `"\n".join(matched_lines)` call, return `matched_lines` directly. `total`/`matched` counts
+  unchanged. This is the single shared seam FR14 established — one change here fixes the
+  grep-filtered path for all three tools at once.
+- **`tools/get.py`** (`output="wide"` branch, ~line 147-156): `response: dict[str, Any] =
+  {"output": result["stdout"].splitlines()}`; the grep branch (~line 152-155) calls
+  `filter_lines(result["stdout"].splitlines(), grep_compiled)` and assigns the returned list
+  directly to `response["output"]`.
+- **`tools/describe.py`** (~line 64-72): same pattern — `{"output":
+  result["stdout"].splitlines()}`; the grep branch passes `result["stdout"].splitlines()` into
+  `filter_lines()` and assigns the returned list to `response["output"]`.
+- **`output/bounding.py`'s `bound_logs()`** (~line 50-90): `lines = stdout.splitlines()`
+  already computed at line 61. Truncation branch (line 63-70): `logs_out = truncated_lines`
+  (was `"\n".join(truncated_lines)` at line 65). No-truncation branch (line 71-76): `logs_out =
+  lines` (was raw `stdout` at line 72). Return type's `"logs"` key changes from `str` to
+  `list[str]`.
+- **`tools/logs.py`** (~line 96-97): `bounded["logs"]` is already `list[str]` after the
+  `bound_logs()` change above, so `filter_lines(bounded["logs"], grep_compiled)` passes it
+  straight through — no `.splitlines()` needed at this call site.
+- **Tests:**
+  - `tests/unit/test_grep_filter.py`: `filter_lines()` unit tests updated to pass a `list[str]`
+    in and assert a `list[str]` out, not a joined string.
+  - `tests/unit/test_bounding.py`: `bound_logs()` tests updated to assert `result["logs"]` is a
+    `list[str]` (e.g. `== stdout.splitlines()`), not a string, for both the truncated and
+    untruncated branch.
+  - `tests/unit/test_tools_get.py`: the `output="wide"` `isinstance(result["data"]["output"],
+    str)` assertion (currently at line 343) flips to `list`; all 5 grep tests' filtered-output
+    assertions updated from string equality/substring to list equality.
+  - `tests/unit/test_tools_describe.py`: same treatment for its 4 grep tests plus the base
+    (non-grep) `output` assertion.
+  - `tests/unit/test_tools_logs.py`: same treatment for its 6 grep tests plus the base `logs`
+    assertion.
+- **Docs (Definition of Done):** PRD.md §6's Tool Specification table doesn't currently state a
+  type for the `output`/`logs` fields, so no table-wording change is forced by this alone; if
+  type wording is added while building this, keep it in sync with the `list[str]` shape at the
+  same time — per this project's own established convention of not letting §6 drift from
+  shipped reality (see FR20's closing note above for the same discipline applied there).
+
+**Success Criteria (test coverage):**
+1. `filter_lines()` unit tests assert `list[str]` in, `list[str]` out.
+2. `k_get(output="wide")`, `k_describe`, and `k_logs` each return `list[str]` (not `str`) under
+   their text field, in both the grep and non-grep path.
+3. `bound_logs()` unit tests assert `list[str]` for both the truncated and untruncated branch.
+4. Full suite passes with zero regressions outside the enumerated type-shape assertion changes
+   above.

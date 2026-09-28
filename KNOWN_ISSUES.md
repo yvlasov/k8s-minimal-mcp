@@ -53,6 +53,8 @@ implemented" label written before it was actually true). A Status line may not c
 | FR18 | Add CI (GitHub Actions) running the test suite on push/PR | Done — see CHANGELOG.md | PRD §15 FR18 |
 | FR19 | Split `errors.py` (306 lines) into a package by error domain — low priority | Done — see CHANGELOG.md | PRD §15 FR19 |
 | FR20 | Rename `jsonpath_template`→`jsonpath`, drop `output="jsonpath"`, unconditional precedence over `output` | Done | PRD §15 FR20, SPEC §8 FR20 |
+| FR21 | Distinguishable error codes: timeout/connectivity, authentication vs. authorization, kubectl-level argument failures | Proposed | PRD §15 FR21, SPEC §8 FR21 |
+| FR22 | Emit multiline tool output (`data.output`) as a JSON array of lines instead of an escaped string — the escaped form defeats grep/line-addressable reads on spilled-over tool-output files | Proposed | PRD §15 FR22, SPEC §8 FR22 |
 
 ---
 
@@ -124,6 +126,79 @@ without re-running the sorter — confirmed to actually break `.github/workflows
 `ruff check --fix src` (pure alphabetical reorder, zero semantic change — verified via diff);
 CI green afterward. The `disable_error_code`/mypy problem this issue is actually about remains
 OPEN.
+
+### 51. FR20's `jsonpath_template`→`jsonpath` rename missed one call site: `invalid_jsonpath_template()`'s response field and docstring
+
+**File:** `src/k8s_mcp/errors/core.py:192-203`
+**Severity:** Medium — not a crash, but a model-facing contract break: a caller using the new
+`jsonpath` param who hits this error gets a response back with the field still named
+`jsonpath_template`, and the function's docstring still reads "jsonpath_template contains
+nested braces" — both stale artifacts of the pre-FR20 param name.
+**Root cause:** FR20's CHANGELOG entry claims the rename covers "tool descriptions, error
+messages, and tests" across `k_get`/`k_apply`/`k_patch`, but `invalid_jsonpath_template()` in
+`errors/core.py` was missed:
+```python
+def invalid_jsonpath_template(
+    ...
+) -> dict[str, Any]:
+    """k_get/k_apply/k_patch: jsonpath_template contains nested braces (invalid syntax)."""
+    ...
+    out["jsonpath_template"] = template
+```
+No test caught it because `test_tools_get.py`/`test_tools_apply.py`/`test_tools_patch.py`'s
+nested-brace regression tests (FR8/FR20) only assert on the error *code*
+(`invalid_jsonpath_template`), never on the response field name — so the rename gap is
+undetectable by the existing suite. This also means FR20's own PRD §15 success criterion #9
+("every `invalid_output` call site... carries a non-empty `detail`") and its "Done — verified"
+status are correct for `invalid_output` but the sibling `invalid_jsonpath_template` helper was
+never actually re-verified against the renamed param.
+**Proposed fix:**
+1. `errors/core.py`: rename `out["jsonpath_template"] = template` → `out["jsonpath"] = template`;
+   update the docstring's `jsonpath_template` reference → `jsonpath`.
+2. Add an assertion in each of the three nested-brace regression tests
+   (`test_tools_get.py`/`test_tools_apply.py`/`test_tools_patch.py`) that the response's
+   `jsonpath` key (not `jsonpath_template`) carries the template string — closes the exact gap
+   that let this slip through.
+3. Grep `errors/` for any other `_template` remnants before closing, in case the same miss
+   recurs elsewhere.
+**Status:** OPEN, not yet fixed. Found via a doc/code cross-audit (2026-09-27), not user-reported.
+
+---
+
+## TODO
+
+Actionable checklists for the OPEN issue and Proposed FRs above. These are distilled from the
+full plans, not a second copy of them — see the cross-referenced section for rationale and
+exact code shape before implementing.
+
+**Issue 51** — `jsonpath_template`→`jsonpath` field-name miss (see full write-up above):
+- [ ] `errors/core.py`: `out["jsonpath_template"] = template` → `out["jsonpath"] = template`;
+      fix the docstring's stale `jsonpath_template` reference
+- [ ] `test_tools_get.py`/`test_tools_apply.py`/`test_tools_patch.py`: assert the response's
+      `jsonpath` key (not `jsonpath_template`) carries the template string
+- [ ] Grep `errors/` for any other `_template` remnants before closing
+
+**FR21** — distinguishable error codes (see SPEC.md §8 FR21):
+- [ ] `errors/core.py`: add the 7 new error codes + `_base()`-shaped helpers
+- [ ] `kubectl/runner.py`: route `TimeoutExpired`/`FileNotFoundError`/`OSError` through the new
+      helpers instead of ad hoc dicts (closes the missing-`context` gap)
+- [ ] `kubectl/errors.py`: reorder/extend `map_kubectl_error()`'s pattern list per the 8-step
+      ordering (authentication check before forbidden, new unreachable/invalid-argument/
+      object-invalid checks before the `kubectl_failure` fallback)
+- [ ] `test_runner.py` (3 assertions) and `test_kubectl_errors.py` (1 changed + 4 new cases)
+      updated per SPEC.md §8 FR21
+- [ ] PRD.md §7: add the 6 new error codes and backfill the pre-existing `kubectl_failure` gap
+
+**FR22** — `data.output`/`logs` as JSON array of lines (see SPEC.md §8 FR22):
+- [ ] `resolution/grep_filter.py`: `filter_lines()` takes/returns `list[str]` instead of a
+      joined `str`
+- [ ] `tools/get.py`, `tools/describe.py`: emit `result["stdout"].splitlines()` instead of the
+      raw `stdout` string under `output`
+- [ ] `output/bounding.py`'s `bound_logs()`: emit `list[str]` under `logs` instead of
+      `"\n".join(...)` / raw `stdout`
+- [ ] `tools/logs.py`: pass the already-split `bounded["logs"]` straight into `filter_lines()`
+- [ ] Update `test_grep_filter.py`, `test_bounding.py`, `test_tools_get.py`,
+      `test_tools_describe.py`, `test_tools_logs.py` — all currently assert string output
 
 ---
 

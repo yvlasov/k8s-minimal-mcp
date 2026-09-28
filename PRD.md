@@ -88,9 +88,9 @@ All tools take `context` (kubeconfig context name) as a required input parameter
 
 | Tool | Required (beyond `context`) | Optional | Output-reduction default (reported per R4) | Access level |
 |---|---|---|---|---|
-| `k_get` | `resource` | `name`, `namespace`, `all_namespaces`, `label_selector`, `field_selector`, `output`, `jsonpath`, `annotation_selector` | `output=name` (names only) by default; `json`/`yaml` on request. `output=wide` delegates to kubectl's own `-o wide` and returns its plain-text table verbatim as `output`. `jsonpath` triggers jsonpath mode regardless of `output` (bare `output="jsonpath"` with no `jsonpath` parameter, nested braces in the template, or `output="wide"` with no `jsonpath` set are fail-fast errors with `detail`). `annotation_selector` filters results client-side by `metadata.annotations`, reports `{"matched": N, "total": M}` as `_filtered`; incompatible with `jsonpath`/`output=wide`. All non-jsonpath/non-wide JSON field-pruned per R9. | readonly |
-| `k_describe` | `resource`, `name` | `namespace` | None — delegates verbatim to `kubectl describe`. | readonly |
-| `k_logs` | `pod` | `namespace`, `container`, `tail`, `previous`, `since`, `since_time`, `limit_bytes` | `tail=100`, `limit_bytes=8192`. `since`/`since_time` are mutually exclusive per kubectl's own convention (relative duration vs. absolute RFC3339 timestamp). Response states both bounds and whether truncation occurred by either; a byte-limit truncation includes a `message` pointing at `limit_bytes` specifically, since increasing `tail` alone won't help once the byte cap is what's binding. | readonly |
+| `k_get` | `resource` | `name`, `namespace`, `all_namespaces`, `label_selector`, `field_selector`, `output`, `jsonpath`, `annotation_selector`, `grep`, `grep_ignore_case` | `output=name` (names only) by default; `json`/`yaml` on request. `output=wide` delegates to kubectl's own `-o wide` and returns its plain-text table verbatim as `output`. `jsonpath` triggers jsonpath mode regardless of `output` (bare `output="jsonpath"` with no `jsonpath` parameter, nested braces in the template, or `output="wide"` with no `jsonpath` set are fail-fast errors with `detail`). `annotation_selector` filters results client-side by `metadata.annotations`, reports `{"matched": N, "total": M}` as `_filtered`; incompatible with `jsonpath`/`output=wide`. All non-jsonpath/non-wide JSON field-pruned per R9. | readonly |
+| `k_describe` | `resource`, `name` | `namespace`, `grep`, `grep_ignore_case` | None — delegates verbatim to `kubectl describe`; `grep` filters the returned text to matching lines, reporting `_filtered` per R4. | readonly |
+| `k_logs` | `pod` | `namespace`, `container`, `tail`, `previous`, `since`, `since_time`, `limit_bytes`, `grep`, `grep_ignore_case` | `tail=100`, `limit_bytes=8192`. `since`/`since_time` are mutually exclusive per kubectl's own convention (relative duration vs. absolute RFC3339 timestamp). Response states both bounds and whether truncation occurred by either; a byte-limit truncation includes a `message` pointing at `limit_bytes` specifically, since increasing `tail` alone won't help once the byte cap is what's binding. `grep` filters within the already-`tail`/`limit_bytes`-bounded window (applied after bounding), not the full log history — see §15 FR14. | readonly |
 | `k_apply` | `manifest` or `src_file` (exactly one) | `namespace`, `dry_run`, `output`, `jsonpath` | N/A — response states `dry_run` status. `src_file` is an absolute path to a server-filesystem manifest file. `jsonpath` returns the raw jsonpath string as `data`. `output="yaml"` returns `{"_yaml": <string>}`; `output="wide"` is rejected unless `jsonpath` is also set (jsonpath unconditionally overrides output). `output="jsonpath"` without `jsonpath` parameter is a fail-fast error with `detail`. | readwrite |
 | `k_patch` | `resource`, `name`, `patch` | `namespace`, `type` (strategic/merge/json), `dry_run`, `output`, `jsonpath` | N/A — same as `k_apply` above. | readwrite |
 | `k_delete` | `resource` | `name`, `namespace`, `label_selector`, `dry_run` | N/A — same | readwrite |
@@ -205,7 +205,7 @@ Rationale:
 
 - [ ] **Ship `k_describe` at all?** Red Hat didn't implement it despite native API access, shipping `get` + `events` instead. Its output is verbose unstructured text — worst context-per-useful-byte of any candidate tool. Dropping it also removes R11's primary justification, reopening native-vs-subprocess on cleaner grounds.
 - [ ] `k_exec` in v1, or deferred given risk profile even at `admin`?
-- [ ] Which kinds warrant `status` retention by default under R9 (pods/deployments clearly; the general rule for CRDs with `conditions` is less clear).
+- [x] ~~Which kinds warrant `status` retention by default under R9~~ — resolved as implemented: `output/pruning.py`'s `_STATUS_KINDS`/`_CONDITION_KINDS` are hardcoded allowlists (the latter currently `CustomResourceDefinition`, `Certificate`, `CiliumNetworkPolicy`), not a general "CRDs with conditions" rule. **Residual gap:** an arbitrary CRD with `status.conditions` outside that allowlist (e.g. ArgoCD `Application`) still has `status` stripped by default unless the caller passes `keep_status=True` — no dynamic "has `status.conditions`" detection exists. Extending `_CONDITION_KINDS`, or introducing generic conditions-shape detection, is open for a future FR if this proves to matter in practice.
 - [ ] Discovery cache refresh trigger: TTL only, on-miss-retry only, or both.
 - [ ] `rollout`/`scale` post-v1 — contingent on observed usage skew. Red Hat's `resources_scale` (get-or-set, always returns current scale) is a cleaner pattern than folding scale into `patch` if added.
 - [ ] Cilium/Hubble CLI integration as a v2 `--additional-tools` option (Azure ships `call_cilium`/`call_hubble`); orthogonal to CRD access, but `hubble observe` is more useful for Cilium debugging than reading CRDs.
@@ -320,7 +320,7 @@ Not part of v1 scope. Tracked here as candidates, not commitments — promote to
 
 Shipping this tool took two more rounds beyond the core logic to make it actually callable — see `KNOWN_ISSUES.md` Issue 40 / `CHANGELOG.md` for the full history.
 
-### FR14. `grep` — server-side text-filtering for unstructured-text tool output
+### FR14. `grep` — server-side text-filtering for unstructured-text tool output — **Done**
 
 **Motivation.** `k_logs`, `k_describe`, and `k_get`'s `output=wide` all return plain kubectl
 text output verbatim, with no server-side narrowing mechanism — unlike JSON-shaped output,
@@ -358,20 +358,16 @@ avoid, just for the one response shape (raw text) those two mechanisms don't cov
 - **R4** — `_filtered` reporting, same convention as FR2.
 - **R9/R10** — not applicable; no structured JSON involved for any of the three target shapes.
 
-**Open question, not yet resolved:** for `k_logs` specifically, kubectl's own `--tail` and
-`--limit-bytes` flags (the latter now implemented, default 8192 — see the Tool Specification
-table above) already bound what reaches this tool before `grep` ever sees it — `grep` would
-only filter *within* that already-bounded window, not the full log history. Worth an explicit
-caveat in the tool description (increase `tail`/`limit_bytes` or fetch broader first if the
-matching lines might be outside the current window) rather than a silent surprise. Plain-substring
-vs. regex, and the default case-sensitivity, are also open — leaning regex-with-`grep_ignore_case`
-(mirrors `grep -i`,
-which is the tool's namesake and the training-data prior most callers will already have) but
-not locked in.
+**Resolved design questions (were open, now shipped as built):** for `k_logs` specifically,
+`grep` filters only *within* the already-`tail`/`limit_bytes`-bounded window, not the full log
+history — kubectl's own `--tail`/`--limit-bytes` flags bound what reaches this tool before
+`grep` ever sees it. The `k_logs` tool description states this explicitly (see §6's Tool
+Specification table). Matching is regex (`re.search` per line, not plain-substring), with
+`grep_ignore_case` mirroring `grep -i`.
 
-**Status:** Proposed, not accepted into v1 scope. Implementation plan now exists at SPEC.md §8
-FR14 (added once the plan was worked out in full — see `KNOWN_ISSUES.md`'s FEATURE REQUESTS
-table), ready to build once accepted.
+**Status:** Done — implemented per the plan at SPEC.md §8 FR14; shipped on `k_logs`, `k_describe`,
+and `k_get` (the last only meaningful with `output="wide"`). See `CHANGELOG.md` for the
+verification record.
 
 ### FR15. Typing/naming consistency cleanup
 
@@ -553,3 +549,134 @@ see SPEC.md §8 FR20 for the exact test list):**
 **Status:** Done — verified: rename, reordering, and both `detail` messages confirmed present
 in `get.py`/`apply.py`/`patch.py`/`server.py` by direct read; PRD §6's table already reflects
 the new param. See `CHANGELOG.md` FR20.
+
+### FR21. Distinguishable error codes for timeout/connectivity, authentication vs. authorization, and kubectl-level argument failures
+
+**Motivation.** §7's error contract requires every error response to carry `{"context": ...,
+"error": <code>, ...}`. Three real failure classes currently either bypass this contract
+entirely or collapse into an undifferentiated code, verified by direct read of
+`kubectl/runner.py`, `kubectl/errors.py`, and their tests (2026-09-28):
+
+1. **Timeout / connectivity.** `kubectl/runner.py`'s `run_kubectl()` catches
+   `subprocess.TimeoutExpired`, `FileNotFoundError`, and `OSError` and returns ad hoc dicts —
+   e.g. `{"error": f"kubectl timed out after {timeout}s", "command": base_args}` — that never
+   go through `errors.py`'s `_base()` helper. Confirmed: none of the three branches include a
+   `context` key at all (violating R3's "echoed on every output" requirement), and `error`
+   holds a free-text sentence rather than a stable code, so a caller can't reliably switch on
+   it — `tests/unit/test_runner.py`'s own assertions (`test_timeout_expired_error`,
+   `test_file_not_found_error`, `test_oserror_error`) only substring-match the free text,
+   confirming no code contract exists to test against. Separately, a genuinely unreachable
+   cluster (DNS failure, connection refused) doesn't always hit this path — kubectl itself can
+   fail fast with a non-zero exit and a stderr message like `"Unable to connect to the
+   server..."`, which today falls through `map_kubectl_error()`'s pattern list into the generic
+   `kubectl_failure` catch-all, indistinguishable from any other kubectl error.
+2. **Authentication vs. authorization.** `kubectl/errors.py`'s `map_kubectl_error()` maps both
+   `"forbidden"` and `"unauthorized"` substrings to the single code `access_denied`. Confirmed:
+   `tests/unit/test_kubectl_errors.py`'s `test_unauthorized` asserts a literal `stderr='Unauthorized'`
+   (kubectl's real wording for expired/invalid credentials — a 401, distinct from a 403 RBAC
+   denial) maps to `access_denied` — identical to `test_forbidden`'s `'error: forbidden: user
+   "admin" is forbidden'` (a genuine RBAC/403 denial). These are actionably different failures:
+   authentication failure means refresh/fix credentials (expired token, bad cert, wrong
+   kubeconfig user); authorization failure means the identity is valid but lacks the RBAC grant
+   (actionable via `k_auth_can_i`, §15 FR13). Collapsing them into one code loses that signal.
+3. **kubectl/API-server-level argument or object-validation failures.** Most argument mistakes
+   are already caught by this project's own pre-execution `validate()` (R8) before kubectl ever
+   runs. But failures kubectl/the API server itself rejects — a malformed `--type` value, an
+   unknown flag, or an API-server object-validation rejection on `apply`/`patch` (kubectl's own
+   `"... is invalid: ..."` wording) — have no dedicated code today and land in the same
+   `kubectl_failure` catch-all as truly unclassified failures, indistinguishable from case 1's
+   connectivity fallthrough or a genuinely novel kubectl error.
+
+**Proposed shape:**
+- **New error codes** in `errors/core.py`, each a thin `_base()`-shaped helper like every
+  existing one (never a raw ad hoc dict):
+  - `ERROR_KUBECTL_TIMEOUT = "kubectl_timeout"` — the `subprocess.TimeoutExpired` case;
+    `detail` states the timeout value and command (mirrors the current free-text content, now
+    structured).
+  - `ERROR_KUBECTL_NOT_INSTALLED = "kubectl_not_installed"` — the `FileNotFoundError` case
+    (missing binary in `PATH`), kept distinct from timeout since it's an environment/setup
+    problem, not a network one.
+  - `ERROR_KUBECTL_EXEC_ERROR = "kubectl_exec_error"` — the generic `OSError` catch-all
+    (permission denied on the binary, etc.).
+  - `ERROR_KUBECTL_UNREACHABLE = "kubectl_unreachable"` — new pattern in
+    `map_kubectl_error()`: stderr containing `"unable to connect to the server"` / `"connection
+    refused"` / `"no such host"` / `"dial tcp"` (case-insensitive) → cluster/network
+    unreachable, distinct from a timeout (kubectl failed fast) and from a generic failure.
+  - `ERROR_AUTHENTICATION_FAILED = "authentication_failed"` — new pattern in
+    `map_kubectl_error()`, checked *before* the existing forbidden/unauthorized branch:
+    stderr matching `"unauthorized"` (without `"forbidden"` also present), `"must be logged
+    in"`, or `"x509:"` (expired/invalid client certificate) → authentication failure. The
+    existing `"forbidden"` branch keeps `access_denied` unchanged — that's the RBAC/authorization
+    case and is already correctly named and tested.
+  - `ERROR_KUBECTL_INVALID_ARGUMENT = "kubectl_invalid_argument"` — new pattern: stderr
+    starting with `"error: unknown flag"` / `"error: unknown shorthand flag"` / `"error:
+    unknown command"` (kubectl CLI usage errors) → argument-level rejection, distinct from an
+    object/data validation rejection.
+  - `ERROR_OBJECT_INVALID = "object_invalid"` — new pattern: stderr containing `" is
+    invalid: "` (the API server's own object-validation wording on `apply`/`patch`) →
+    server-side validation rejection, distinct from a client-side argument mistake.
+  - Everything not matched by any pattern still falls through to the existing `kubectl_failure`
+    catch-all — unchanged behavior for truly novel failures.
+- **`kubectl/runner.py`:** all three exception branches (`TimeoutExpired`, `FileNotFoundError`,
+  `OSError`) construct their return value via the new `errors.py` helpers instead of ad hoc
+  dicts — closes the R3/§7 contract gap identified above; every branch now includes `context`.
+- **Pattern-match ordering in `map_kubectl_error()`:** authentication/x509 checks must run
+  before the existing forbidden check (since "forbidden" is the more specific, higher-confidence
+  signal and must not be shadowed), and the new `kubectl_unreachable`/`kubectl_invalid_argument`/
+  `object_invalid` checks run before the final `kubectl_failure` fallback. Exact ordering and
+  stderr substrings to be finalized against real kubectl output samples during implementation —
+  the patterns above are a reasoned starting set, not verified against a live cluster this
+  session (no cluster was available for reproduction in the corporate-isolation-respecting scope
+  of this review — see `KNOWN_ISSUES.md` process note on `sinsia-pl`).
+
+**Interaction with existing rules:**
+- **R3** — every new/fixed branch now echoes `context`, closing the gap `runner.py`'s exception
+  handlers currently have.
+- **R4** — no output-reduction default involved; not applicable.
+- **§7** — this FR is squarely about honoring the existing error contract, not inventing a new
+  one; no change to the contract's shape, only to which code a given failure maps to.
+- **R8** — case 3's `object_invalid` is deliberately *not* folded into R8's pre-execution
+  validation; R8 validates against locally-known resource metadata (namespaced/verb-supported),
+  it cannot anticipate API-server-side object schema rejections, which only kubectl/the server
+  can surface.
+
+**Success Criteria (test coverage):**
+1. `run_kubectl()`'s `TimeoutExpired`/`FileNotFoundError`/`OSError` branches each assert a
+   fixed `error` code (`kubectl_timeout`/`kubectl_not_installed`/`kubectl_exec_error`) and a
+   present, correct `context` key — replacing the current free-text substring assertions.
+2. `map_kubectl_error()`: a `test_unreachable` case (stderr containing "Unable to connect to
+   the server") asserts `kubectl_unreachable`, distinct from `kubectl_failure`.
+3. `map_kubectl_error()`: `test_unauthorized` (stderr `'Unauthorized'` alone) asserts
+   `authentication_failed`; `test_forbidden` continues to assert `access_denied` unchanged —
+   both cases co-exist in the same test file, proving the split.
+4. A case with both "forbidden" and incidental "unauthorized"-adjacent wording still resolves
+   to `access_denied` (forbidden takes precedence) — guards the ordering requirement above.
+5. `map_kubectl_error()`: `test_invalid_argument` (stderr `"error: unknown flag: --bogus"`)
+   asserts `kubectl_invalid_argument`; a separate `test_object_invalid` (stderr containing
+   `"Deployment.apps \"x\" is invalid: ..."`) asserts `object_invalid`.
+6. Existing `test_default_kubectl_failure` still passes unchanged for stderr matching none of
+   the new patterns — proves the catch-all is preserved, not narrowed incorrectly.
+7. Full suite passes with zero regressions; no existing test's expected error code changes
+   except `test_unauthorized` (intentionally, per item 3).
+
+**Status:** Proposed, not yet accepted into v1 scope. Implementation plan at SPEC.md §8 FR21.
+
+### FR22. Emit multiline tool output as a JSON array of lines instead of an escaped string
+
+**Motivation.** `k_get`'s `output="wide"`, `k_describe`, and `k_logs` all return their raw
+kubectl/API-server text under a string field (`output` for the first two, `logs` for the
+third — confirmed by direct read of `tools/get.py:151`, `tools/describe.py:64-66`, and
+`output/bounding.py:90`). Once JSON-encoded in the MCP response, embedded newlines become
+literal `\n` escapes — a client that spills a large tool response to a file for `grep`/
+line-addressable reading gets a single unbroken JSON line instead of one line per log/describe/
+wide-table line, defeating that workflow entirely. Emitting the same content as a JSON array of
+lines (`list[str]`) instead of one joined string preserves line-addressability with no
+`grep -o`/`sed` decoding step needed first.
+
+**Scope note:** the FEATURE REQUESTS table entry names only `data.output`, but the same
+escaping problem applies identically to `k_logs`'s `logs` field — FR14 above already treats
+`k_get output=wide`, `k_describe`, and `k_logs` as one group solving the analogous
+"unstructured text" problem, so this plan extends to all three for consistency rather than
+fixing two of three.
+
+**Status:** Proposed, not yet accepted into v1 scope. Implementation plan at SPEC.md §8 FR22.
