@@ -648,8 +648,7 @@ effect of the rename.
 
 ### FR21. Distinguishable error codes for timeout/connectivity, authentication vs. authorization, and kubectl-level argument failures
 
-**Status: Proposed, not yet accepted into v1 scope** — this section exists so the plan is
-ready to execute the moment it's accepted; do not start building from PRD §15 FR21 alone.
+**Status: Done** — implemented and committed; see CHANGELOG.md FR21.
 
 - **`errors/core.py`:** six new code constants + thin `_base()`-shaped helpers, same shape as
   every existing helper in this file (`context` first, code from `_base()`, optional `detail`):
@@ -727,8 +726,7 @@ ready to execute the moment it's accepted; do not start building from PRD §15 F
 
 ### FR22. Emit multiline tool output as a JSON array of lines instead of an escaped string
 
-**Status: Proposed, not yet accepted into v1 scope** — this section exists so the plan is
-ready to execute the moment it's accepted; do not start building from PRD §15 FR22 alone.
+**Status: Done** — implemented and committed; see CHANGELOG.md FR22.
 
 - **`resolution/grep_filter.py`:** `filter_lines()`'s signature changes from
   `filter_lines(text: str, compiled: re.Pattern[str]) -> tuple[str, int, int]` to

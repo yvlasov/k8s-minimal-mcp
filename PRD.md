@@ -659,7 +659,7 @@ entirely or collapse into an undifferentiated code, verified by direct read of
 7. Full suite passes with zero regressions; no existing test's expected error code changes
    except `test_unauthorized` (intentionally, per item 3).
 
-**Status:** Proposed, not yet accepted into v1 scope. Implementation plan at SPEC.md §8 FR21.
+**Status:** Done — see CHANGELOG.md FR21.
 
 ### FR22. Emit multiline tool output as a JSON array of lines instead of an escaped string
 
@@ -679,4 +679,4 @@ escaping problem applies identically to `k_logs`'s `logs` field — FR14 above a
 "unstructured text" problem, so this plan extends to all three for consistency rather than
 fixing two of three.
 
-**Status:** Proposed, not yet accepted into v1 scope. Implementation plan at SPEC.md §8 FR22.
+**Status:** Done — see CHANGELOG.md FR22.
