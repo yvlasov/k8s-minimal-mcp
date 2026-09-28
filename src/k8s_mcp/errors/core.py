@@ -19,6 +19,13 @@ ERROR_DISCOVERY_FAILURE = "discovery_failure"
 ERROR_INVALID_JSONPATH_TEMPLATE = "invalid_jsonpath_template"
 ERROR_INVALID_GREP_PATTERN = "invalid_grep_pattern"
 ERROR_OBJECT_NOT_FOUND = "object_not_found"
+ERROR_KUBECTL_TIMEOUT = "kubectl_timeout"
+ERROR_KUBECTL_NOT_INSTALLED = "kubectl_not_installed"
+ERROR_KUBECTL_EXEC_ERROR = "kubectl_exec_error"
+ERROR_KUBECTL_UNREACHABLE = "kubectl_unreachable"
+ERROR_AUTHENTICATION_FAILED = "authentication_failed"
+ERROR_KUBECTL_INVALID_ARGUMENT = "kubectl_invalid_argument"
+ERROR_OBJECT_INVALID = "object_invalid"
 
 
 def _base(context: str, code: str) -> dict[str, Any]:
@@ -232,4 +239,87 @@ def object_not_found(
         out["name"] = name
     if raw_stderr:
         out["raw_stderr"] = raw_stderr
+    return out
+
+
+def kubectl_timeout(
+    context: str,
+    *,
+    timeout: float,
+    command: list[str],
+    detail: str | None = None,
+) -> dict[str, Any]:
+    """subprocess.TimeoutExpired: kubectl exceeded its timeout."""
+    out = _base(context, ERROR_KUBECTL_TIMEOUT)
+    out["timeout"] = timeout
+    out["command"] = command
+    if detail:
+        out["detail"] = detail
+    return out
+
+
+def kubectl_not_installed(
+    context: str,
+    *,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    """FileNotFoundError: kubectl binary not in PATH."""
+    out = _base(context, ERROR_KUBECTL_NOT_INSTALLED)
+    if detail:
+        out["detail"] = detail
+    return out
+
+
+def kubectl_exec_error(
+    context: str,
+    *,
+    detail: str,
+) -> dict[str, Any]:
+    """OSError: kubectl could not be executed (permission denied, etc.)."""
+    out = _base(context, ERROR_KUBECTL_EXEC_ERROR)
+    out["detail"] = detail
+    return out
+
+
+def kubectl_unreachable(
+    context: str,
+    *,
+    raw_stderr: str,
+) -> dict[str, Any]:
+    """kubectl failed fast: cluster/network unreachable (DNS, connection refused)."""
+    out = _base(context, ERROR_KUBECTL_UNREACHABLE)
+    out["raw_stderr"] = raw_stderr
+    return out
+
+
+def authentication_failed(
+    context: str,
+    *,
+    raw_stderr: str,
+) -> dict[str, Any]:
+    """kubectl: credentials expired/invalid (401), distinct from RBAC denial (403)."""
+    out = _base(context, ERROR_AUTHENTICATION_FAILED)
+    out["raw_stderr"] = raw_stderr
+    return out
+
+
+def kubectl_invalid_argument(
+    context: str,
+    *,
+    raw_stderr: str,
+) -> dict[str, Any]:
+    """kubectl CLI rejected the invocation (unknown flag/command)."""
+    out = _base(context, ERROR_KUBECTL_INVALID_ARGUMENT)
+    out["raw_stderr"] = raw_stderr
+    return out
+
+
+def object_invalid(
+    context: str,
+    *,
+    raw_stderr: str,
+) -> dict[str, Any]:
+    """API server rejected the object on apply/patch (schema validation)."""
+    out = _base(context, ERROR_OBJECT_INVALID)
+    out["raw_stderr"] = raw_stderr
     return out

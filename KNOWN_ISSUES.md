@@ -75,16 +75,16 @@ exact code shape before implementing.
       `jsonpath` key (not `jsonpath_template`) carries the template string
 - [x] Grep `errors/` for any other `_template` remnants before closing
 
-**FR21** — distinguishable error codes (see SPEC.md §8 FR21):
-- [ ] `errors/core.py`: add the 7 new error codes + `_base()`-shaped helpers
-- [ ] `kubectl/runner.py`: route `TimeoutExpired`/`FileNotFoundError`/`OSError` through the new
+**FR21** — distinguishable error codes (done, see CHANGELOG.md):
+- [x] `errors/core.py`: add the 7 new error codes + `_base()`-shaped helpers
+- [x] `kubectl/runner.py`: route `TimeoutExpired`/`FileNotFoundError`/`OSError` through the new
       helpers instead of ad hoc dicts (closes the missing-`context` gap)
-- [ ] `kubectl/errors.py`: reorder/extend `map_kubectl_error()`'s pattern list per the 8-step
+- [x] `kubectl/errors.py`: reorder/extend `map_kubectl_error()`'s pattern list per the 8-step
       ordering (authentication check before forbidden, new unreachable/invalid-argument/
       object-invalid checks before the `kubectl_failure` fallback)
-- [ ] `test_runner.py` (3 assertions) and `test_kubectl_errors.py` (1 changed + 4 new cases)
+- [x] `test_runner.py` (3 assertions) and `test_kubectl_errors.py` (1 changed + 4 new cases)
       updated per SPEC.md §8 FR21
-- [ ] PRD.md §7: add the 6 new error codes and backfill the pre-existing `kubectl_failure` gap
+- [x] PRD.md §7: add the 6 new error codes and backfill the pre-existing `kubectl_failure` gap
 
 **FR22** — `data.output`/`logs` as JSON array of lines (see SPEC.md §8 FR22):
 - [ ] `resolution/grep_filter.py`: `filter_lines()` takes/returns `list[str]` instead of a

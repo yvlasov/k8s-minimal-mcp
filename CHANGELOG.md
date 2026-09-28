@@ -11,6 +11,20 @@ Ordered newest-first within each section, matching the order these were actually
 
 ## Feature Requests
 
+### FR21 — Distinguishable error codes for timeout/connectivity, authentication vs. authorization, and kubectl-level argument failures
+
+**Files:** `errors/core.py`, `errors/__init__.py`, `kubectl/runner.py`, `kubectl/errors.py`, `tests/unit/test_runner.py`, `tests/unit/test_kubectl_errors.py`, `PRD.md` §7
+
+**What changed:**
+1. **7 new error codes + helpers** in `errors/core.py`: `kubectl_timeout`, `kubectl_not_installed`, `kubectl_exec_error`, `kubectl_unreachable`, `authentication_failed`, `kubectl_invalid_argument`, `object_invalid` — each a thin `_base()`-shaped helper.
+2. **`kubectl/runner.py`:** all three exception branches (`TimeoutExpired`, `FileNotFoundError`, `OSError`) now return structured dicts via the new helpers — every branch includes `context` (closes the R3/§7 contract gap).
+3. **`kubectl/errors.py`:** `map_kubectl_error()` pattern list extended and reordered: unreachable → authentication (before forbidden) → access_denied → invalid_argument → object_invalid → kubectl_failure fallback. One intentional behavior change: bare `"Unauthorized"` (401) now maps to `authentication_failed` instead of `access_denied`.
+4. **PRD.md §7:** all 7 new codes added to the error-codes list; `kubectl_failure` backfilled (was implemented but never documented there).
+
+416 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
+
+Comitted `TODO`.
+
 ### FR20 — Rename `jsonpath_template` → `jsonpath`, drop `output="jsonpath"`, unconditional precedence over `output`
 
 Three changes to `k_get`/`k_apply`/`k_patch`'s jsonpath behavior:

@@ -100,23 +100,24 @@ class TestRunKubectl:
             cmd="kubectl get pods", timeout=30.0
         )
         result = run_kubectl("ctx", ["get", "pods"], timeout=30.0)
-        assert "error" in result
-        assert "timed out" in result["error"]
-        assert "30.0s" in result["error"]
+        assert result["error"] == "kubectl_timeout"
+        assert result["context"] == "ctx"
+        assert result["timeout"] == 30.0
 
     @patch("src.k8s_mcp.kubectl.runner.subprocess.run")
     def test_file_not_found_error(self, mock_run):
         mock_run.side_effect = FileNotFoundError("kubectl")
         result = run_kubectl("ctx", ["get", "pods"])
-        assert "error" in result
-        assert "not found" in result["error"]
+        assert result["error"] == "kubectl_not_installed"
+        assert result["context"] == "ctx"
 
     @patch("src.k8s_mcp.kubectl.runner.subprocess.run")
     def test_oserror_error(self, mock_run):
         mock_run.side_effect = OSError("permission denied")
         result = run_kubectl("ctx", ["get", "pods"])
-        assert "error" in result
-        assert "oserror" in result["error"]
+        assert result["error"] == "kubectl_exec_error"
+        assert result["context"] == "ctx"
+        assert "permission denied" in result["detail"]
 
 
 class TestRunKubectlChecked:
@@ -151,15 +152,15 @@ class TestRunKubectlChecked:
             cmd="kubectl get pods", timeout=10.0
         )
         result = run_kubectl_checked("ctx", ["get", "pods"], timeout=10.0)
-        assert "error" in result
-        assert "timed out" in result["error"]
+        assert result["error"] == "kubectl_timeout"
+        assert result["context"] == "ctx"
 
     @patch("src.k8s_mcp.kubectl.runner.subprocess.run")
     def test_file_not_found_passthrough(self, mock_run):
         mock_run.side_effect = FileNotFoundError("kubectl")
         result = run_kubectl_checked("ctx", ["get", "pods"])
-        assert "error" in result
-        assert "not found" in result["error"]
+        assert result["error"] == "kubectl_not_installed"
+        assert result["context"] == "ctx"
 
     @patch("src.k8s_mcp.kubectl.runner.subprocess.run")
     def test_context_preserved_through_checked(self, mock_run):

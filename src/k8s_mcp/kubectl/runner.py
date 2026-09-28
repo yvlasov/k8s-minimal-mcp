@@ -12,6 +12,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any
 
+from ..errors import kubectl_exec_error, kubectl_not_installed, kubectl_timeout
 from .errors import map_kubectl_error
 
 
@@ -68,11 +69,11 @@ def run_kubectl(
             command=base_args,
         ).__dict__
     except subprocess.TimeoutExpired:
-        return {"error": f"kubectl timed out after {timeout}s", "command": base_args}
+        return kubectl_timeout(context, timeout=timeout, command=base_args)
     except FileNotFoundError:
-        return {"error": "kubectl binary not found in PATH"}
+        return kubectl_not_installed(context)
     except OSError as e:
-        return {"error": f"oserror running kubectl: {e}", "command": base_args}
+        return kubectl_exec_error(context, detail=str(e))
 
 
 def run_kubectl_checked(
