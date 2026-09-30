@@ -99,6 +99,18 @@ def _parse_api_resources(output: str) -> list[ResourceMeta]:
       deployments  deploy  apps/v1  true  Deployment  [create delete get list patch update watch]  [basic]
       ciliumnetworkpolicies  ciliumnet  cilium.io/v2  true  CiliumNetworkPolicy  [create delete get list patch update watch]
     """
+    # Translation table mapping Kubernetes API verbs to MCP tool-verbs
+    _API_VERB_TO_MCP_VERBS: dict[str, frozenset[str]] = {
+        "get": frozenset({"get"}),
+        "list": frozenset({"get"}),
+        "create": frozenset({"apply"}),
+        "update": frozenset({"apply"}),
+        "patch": frozenset({"apply", "patch"}),
+        "delete": frozenset({"delete"}),
+        "watch": frozenset(),
+        "deletecollection": frozenset(),
+    }
+
     resources: list[ResourceMeta] = []
     lines = output.strip().splitlines()
     if not lines:
@@ -176,7 +188,11 @@ def _parse_api_resources(output: str) -> list[ResourceMeta]:
 
         # Parse VERBS (comma-separated in kubectl -o wide output)
         if verbs_str:
-            verbs = [v.strip() for v in verbs_str.split(",") if v.strip()]
+            api_verbs = [v.strip() for v in verbs_str.split(",") if v.strip()]
+            mcp_verbs: set[str] = set()
+            for v in api_verbs:
+                mcp_verbs |= _API_VERB_TO_MCP_VERBS.get(v, frozenset())
+            verbs = sorted(list(mcp_verbs))
         else:
             verbs = ["get", "apply", "patch", "delete"]
 

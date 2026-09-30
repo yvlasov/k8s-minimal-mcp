@@ -24,7 +24,7 @@ class TestParseApiResources:
         assert pods.namespaced is True
         assert "po" in pods.shortnames
         assert "get" in pods.verbs
-        assert "create" in pods.verbs
+        assert "apply" in pods.verbs
         assert "delete" in pods.verbs
 
     def test_parses_apps_resources(self):
@@ -85,8 +85,8 @@ class TestParseApiResources:
         result = _parse_api_resources(_load_fixture())
         pods = next((r for r in result if r.canonical == "pods"), None)
         assert pods is not None
-        expected_verbs = {"create", "delete", "deletecollection", "get", "list", "patch", "update", "watch"}
-        assert set(pods.verbs) == expected_verbs
+        # Verbs are translated from Kubernetes API verbs to MCP tool-verbs
+        assert set(pods.verbs) == {"get", "apply", "patch", "delete"}
 
     def test_parses_empty_output(self):
         result = _parse_api_resources("")
@@ -107,7 +107,7 @@ pods po v1 true Pod get,list"""
         assert result[0].group == ""
         assert result[0].version == "v1"
         assert result[0].namespaced is True
-        assert result[0].verbs == ["get", "list"]
+        assert result[0].verbs == ["get"]
 
     def test_parses_without_separator_line(self):
         output = """NAME SHORTNAMES APIVERSION NAMESPACED KIND VERBS
@@ -148,6 +148,30 @@ pods po v1 true Pod get,list"""
             assert isinstance(r.namespaced, bool)
             assert isinstance(r.verbs, list)
             assert len(r.verbs) > 0
+
+    def test_verb_translation_full_write_capabilities(self):
+        output = """NAME SHORTNAMES APIVERSION NAMESPACED KIND VERBS
+mycrd mycrd mygroup/v1 true MyCRD create,delete,get,list,patch,update,watch"""
+        result = _parse_api_resources(output)
+        assert len(result) == 1
+        assert result[0].canonical == "mycrd"
+        assert set(result[0].verbs) == {"get", "apply", "patch", "delete"}
+
+    def test_verb_translation_read_only_capabilities(self):
+        output = """NAME SHORTNAMES APIVERSION NAMESPACED KIND VERBS
+myreadonlycrd myrc mygroup/v1 true MyReadOnlyCRD get,list,watch"""
+        result = _parse_api_resources(output)
+        assert len(result) == 1
+        assert result[0].canonical == "myreadonlycrd"
+        assert result[0].verbs == ["get"]
+
+    def test_verb_translation_skips_unmapped_verbs(self):
+        output = """NAME SHORTNAMES APIVERSION NAMESPACED KIND VERBS
+mycrd2 mycrd2 mygroup/v1 true MyCRD2 get,watch,deletecollection,unknownverb"""
+        result = _parse_api_resources(output)
+        assert len(result) == 1
+        assert result[0].canonical == "mycrd2"
+        assert result[0].verbs == ["get"]
 
 
 class TestDiscoveryCacheRefresh:

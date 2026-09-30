@@ -37,6 +37,24 @@ encoding (`_encode_k8s_secret_release()`). Updated decode failure tests to test
 
 ## Feature Requests
 
+### FR23 — Translate discovery's raw Kubernetes API verbs into this project's MCP-tool verb vocabulary; add `daemonsets` to the core table
+
+**Files:** `src/k8s_mcp/resolution/discovery.py`, `src/k8s_mcp/data/core_resources.toml`, `tests/unit/test_discovery.py`
+
+**What changed:**
+1. **`resolution/discovery.py`:** added module-level translation table `_API_VERB_TO_MCP_VERBS` mapping Kubernetes API verbs to MCP tool-verbs:
+   - `get`/`list` → `get`
+   - `create`/`update` → `apply`
+   - `patch` → `apply`, `patch`
+   - `delete` → `delete`
+   - `watch`, `deletecollection` → no MCP verb
+   - Unknown verbs contribute nothing (safe default)
+   - Verb parsing now computes the union of mapped sets and returns sorted list
+2. **`data/core_resources.toml`:** added `daemonsets` resource block (canonical `"daemonsets"`, shortname `"ds"`, kind `"DaemonSet"`, group `"apps"`, version `"v1"`, namespaced `true`, `verbs = ["get", "apply", "patch", "delete"]`).
+3. **Tests:** added discovery-parsing unit tests for verb translation (full write capabilities, read-only capabilities, unmapped verbs); updated existing verb tests to expect translated MCP verbs.
+
+419 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
+
 ### FR22 — Emit multiline tool output as a JSON array of lines instead of an escaped string
 
 **Files:** `resolution/grep_filter.py`, `tools/get.py`, `tools/describe.py`, `output/bounding.py`, `tools/logs.py`, `tests/unit/test_grep_filter.py`, `tests/unit/test_bounding.py`, `tests/unit/test_tools_get.py`, `tests/unit/test_tools_describe.py`, `tests/unit/test_tools_logs.py`

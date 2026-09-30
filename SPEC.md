@@ -780,8 +780,7 @@ effect of the rename.
 
 ### FR23. Translate discovery's raw Kubernetes API verbs into this project's MCP-tool verb vocabulary; add `daemonsets` to the core table
 
-**Status: Proposed, not yet accepted into v1 scope** — this section exists so the plan is ready
-to execute the moment it's accepted; do not start building from PRD §15 FR23 alone.
+**Status: Done** — implemented and committed; see CHANGELOG.md FR23.
 
 - **`resolution/discovery.py`:** add a module-level translation table immediately above
   `_parse_api_resources()` (the function that parses the VERBS column, ~line 91, verb-parsing

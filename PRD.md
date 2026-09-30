@@ -197,12 +197,7 @@ Rationale:
 **Current status against `main`:**
 - **Tool count:** met — 6 tools at `readonly`, 9 at `readwrite`, 12 at `admin` (limit 12).
 - **Ambiguous-resource / wrong-API-group criterion:** met (see Issue 38 in `CHANGELOG.md` for the period it was violated and how it was fixed).
-- **CRUD coverage of an arbitrary CRD with zero server-side changes:** **read path holds**
-  (FR9/FR11/FR12/FR13 added tools/prompts without special-casing any CRD type); **write path
-  (`k_apply`) confirmed broken by code trace** for every CRD resolved via discovery —
-  `resolution/discovery.py` passes raw Kubernetes API verbs straight into `resource_meta.verbs`,
-  and `"apply"` is not a literal API verb, so it can never appear there regardless of RBAC. See
-  §15 FR23 for root cause and fix; not yet shipped.
+- **CRUD coverage of an arbitrary CRD with zero server-side changes:** **met** — read and write paths both hold. Discovery verb translation (FR23) maps raw Kubernetes API verbs (`create`, `update`, `patch`, etc.) to MCP tool-verbs (`apply`, `patch`, etc.), and `daemonsets` is now in the static core table. See CHANGELOG.md FR23.
 - **Token budget ≤40%:** unmeasured — §10's own instrumentation step was never built.
 - **Zero wrong-context mutations:** structurally enforced by R3 (no default `context`, no session state) across every tool; no dedicated named multi-context test scenario exists as its own artifact, but every handler test exercises distinct `context` values and asserts correct echo.
 
@@ -775,4 +770,4 @@ the table).
    expected verb set narrows as a side effect of the translation (only `apply` should newly
    appear where `create`/`patch`/`update` was already present in the raw fixture).
 
-**Status:** Proposed, not yet accepted into v1 scope. Implementation plan at SPEC.md §8 FR23.
+**Status:** Done — see CHANGELOG.md FR23.
