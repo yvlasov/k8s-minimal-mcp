@@ -55,27 +55,50 @@ implemented" label written before it was actually true). A Status line may not c
 | FR20 | Rename `jsonpath_template`→`jsonpath`, drop `output="jsonpath"`, unconditional precedence over `output` | Done | PRD §15 FR20, SPEC §8 FR20 |
 | FR21 | Distinguishable error codes: timeout/connectivity, authentication vs. authorization, kubectl-level argument failures | Done — see CHANGELOG.md | PRD §15 FR21, SPEC §8 FR21 |
 | FR22 | Emit multiline tool output (`data.output`) as a JSON array of lines instead of an escaped string — the escaped form defeats grep/line-addressable reads on spilled-over tool-output files | Done — see CHANGELOG.md | PRD §15 FR22, SPEC §8 FR22 |
-| FR23 | Translate discovery's raw Kubernetes API verbs into this project's MCP verb vocabulary (`apply` is structurally unavailable on every CRD today, not just daemonsets); add `daemonsets` to the core table | Proposed | PRD §15 FR23, SPEC §8 FR23 |
+| FR23 | Translate discovery's raw Kubernetes API verbs into this project's MCP verb vocabulary (`apply` is structurally unavailable on every CRD today, not just daemonsets); add `daemonsets` to the core table | Done — see CHANGELOG.md (commit `73bef0d`) | PRD §15 FR23, SPEC §8 FR23 |
 
-**FR23 — broadened 2026-09-28 from its original narrow framing.** Originally submitted as "add
-`daemonsets` to the core table" (valid — `k_apply` on a DaemonSet manifest fails with
-`{"error":"verb_unsupported","resource":"daemonsets","verb":"apply"}`, and `daemonsets` is
-genuinely absent from `data/core_resources.toml`). Validated against source and found the same
-root cause is more general than the original framing: `resolution/discovery.py` parses kubectl's
-live VERBS column **verbatim** into `ResourceMeta.verbs`, but that field's own docstring
-(`resolution/models.py`) documents it as "subset of {get, logs, apply, patch, delete, exec}" —
-this project's tool-verb vocabulary, not raw Kubernetes API verbs. `"apply"` is not a literal API
-verb (kubectl apply is a client-side create-or-patch composite), so it can never appear in
-kubectl's reported VERBS column — meaning **`k_apply` is structurally broken for every CRD
-resolved via discovery**, not just DaemonSets, regardless of the caller's actual RBAC. This
-contradicts PRD §12's "CRUD coverage of an arbitrary CRD" success criterion, now corrected there
-to state the write-path gap explicitly. Full root cause, the verb-translation design, and the
+**FR23 — broadened 2026-09-28 from its original narrow framing, shipped same day.** Originally
+submitted as "add `daemonsets` to the core table" (valid — `k_apply` on a DaemonSet manifest
+failed with `{"error":"verb_unsupported","resource":"daemonsets","verb":"apply"}`, and
+`daemonsets` was genuinely absent from `data/core_resources.toml`). Validated against source and
+found the same root cause was more general than the original framing: `resolution/discovery.py`
+parsed kubectl's live VERBS column **verbatim** into `ResourceMeta.verbs`, but that field's own
+docstring (`resolution/models.py`) documents it as "subset of {get, logs, apply, patch, delete,
+exec}" — this project's tool-verb vocabulary, not raw Kubernetes API verbs. `"apply"` is not a
+literal API verb (kubectl apply is a client-side create-or-patch composite), so it could never
+appear in kubectl's reported VERBS column — meaning `k_apply` was structurally broken for every
+CRD resolved via discovery, not just DaemonSets, regardless of the caller's actual RBAC. This
+contradicted PRD §12's "CRUD coverage of an arbitrary CRD" success criterion, corrected there
+to state the write-path status accurately. Full root cause, the verb-translation design, and the
 daemonsets table-row fix are written up in PRD.md §15 FR23 / SPEC.md §8 FR23 (not duplicated here
 per this file's pointer-only convention).
+
+**Residual gap, found 2026-09-28 during Done-status verification:** SPEC §8 FR23's test list and
+PRD §15 FR23's Success Criteria item 4 both call for a dedicated test proving `daemonsets`
+resolves via the static core table (not discovery) and that `k_apply`/`k_patch`/`k_delete`
+succeed against it. No such test exists — `grep -r daemonset tests/` matches only an unrelated
+pre-existing discovery fixture line (`tests/fixtures/kubectl_outputs/api_resources_wide.txt:19`).
+The general verb-translation logic is tested (`test_discovery.py` gained cases), and the suite's
+passing count went up in the same commit, which is likely why this specific promised test's
+absence wasn't caught — the count increase looked like coverage for the whole FR. Add one test
+(`test_tools_apply.py` or `test_core_table.py`) asserting `daemonsets` resolves without touching
+the discovery cache/mock kubectl call, matching the existing `deployments`/`statefulsets`
+assertion pattern, before considering this FR's Definition-of-Done item 1 fully satisfied.
 
 ---
 
 ## OPEN (not yet fixed)
+
+| # | Title | File(s) |
+|---|---|---|
+| 53 | `bound_logs()`'s docstring still describes its `logs` return value as a string — stale since FR22 changed it to `list[str]` | `output/bounding.py` |
+
+**Issue 53 detail:** Cosmetic, found during FR22 Done-status verification (2026-09-28).
+`output/bounding.py`'s `bound_logs()` docstring (~line 52) reads "logs: the (possibly truncated)
+log string" — unchanged from before FR22 shipped, which changed the actual return type of the
+`logs` key from a joined `str` to `list[str]`. No functional impact; a reader trusting the
+docstring over the code gets the wrong shape. Fix: update the docstring's `logs` description to
+say "list of (possibly truncated) log lines."
 
 ---
 

@@ -566,11 +566,11 @@ verbatim. Now: `.data`/`.stringData` → `{"redacted_keys": [...]}` when `kind =
   call shape exactly (see Issue 40/41 — this is the exact class of mismatch that test exists to
   catch).
 
-### FR20. Rename `jsonpath_template`→`jsonpath`; drop `output="jsonpath"`; unconditional precedence over `output`
+### FR20. Rename `jsonpath_template`→`jsonpath`; drop `output="jsonpath"`; unconditional precedence over `output` — **Done**
 
-**Status: Proposed, plan ready — coder-executable from this section alone.** Motivating
-finding, full design rationale, and success criteria are in `PRD.md` §15 FR20; this section is
-the file-by-file implementation plan only.
+**Status: Done** — implemented per the plan below. Motivating finding, full design rationale,
+and success criteria are in `PRD.md` §15 FR20; this section was the file-by-file implementation
+plan. See `CHANGELOG.md` FR20 for the verification record.
 
 **Ordering principle that drives every change below:** in each of `get.py`/`apply.py`/
 `patch.py`, the `jsonpath`-truthy check must now run — and short-circuit every `output`-value-
