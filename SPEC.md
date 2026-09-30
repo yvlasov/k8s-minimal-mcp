@@ -777,3 +777,84 @@ effect of the rename.
 3. `bound_logs()` unit tests assert `list[str]` for both the truncated and untruncated branch.
 4. Full suite passes with zero regressions outside the enumerated type-shape assertion changes
    above.
+
+### FR23. Translate discovery's raw Kubernetes API verbs into this project's MCP-tool verb vocabulary; add `daemonsets` to the core table
+
+**Status: Proposed, not yet accepted into v1 scope** — this section exists so the plan is ready
+to execute the moment it's accepted; do not start building from PRD §15 FR23 alone.
+
+- **`resolution/discovery.py`:** add a module-level translation table immediately above
+  `_parse_api_resources()` (the function that parses the VERBS column, ~line 91, verb-parsing
+  itself at ~line 177-181):
+  ```python
+  _API_VERB_TO_MCP_VERBS: dict[str, frozenset[str]] = {
+      "get": frozenset({"get"}),
+      "list": frozenset({"get"}),
+      "create": frozenset({"apply"}),
+      "update": frozenset({"apply"}),
+      "patch": frozenset({"apply", "patch"}),
+      "delete": frozenset({"delete"}),
+      "watch": frozenset(),
+      "deletecollection": frozenset(),
+  }
+  ```
+  Replace the current verb-parsing line:
+  ```python
+  if verbs_str:
+      verbs = [v.strip() for v in verbs_str.split(",") if v.strip()]
+  else:
+      verbs = ["get", "apply", "patch", "delete"]
+  ```
+  with:
+  ```python
+  if verbs_str:
+      api_verbs = [v.strip() for v in verbs_str.split(",") if v.strip()]
+      mcp_verbs: set[str] = set()
+      for v in api_verbs:
+          mcp_verbs |= _API_VERB_TO_MCP_VERBS.get(v, frozenset())
+      verbs = sorted(mcp_verbs)
+  else:
+      verbs = ["get", "apply", "patch", "delete"]
+  ```
+  The `else` branch (empty VERBS column — kubectl reported nothing) keeps today's permissive
+  fallback unchanged; this FR only changes behavior when kubectl *did* report a verb list.
+  `sorted()` keeps output deterministic for tests/snapshots.
+- **`data/core_resources.toml`:** new `[[resource]]` block, placed alongside the other apps/v1
+  entries (after `replicasets`, ~line 50):
+  ```toml
+  [[resource]]
+  canonical = "daemonsets"
+  shortnames = ["ds"]
+  kind = "DaemonSet"
+  group = "apps"
+  version = "v1"
+  namespaced = true
+  verbs = ["get", "apply", "patch", "delete"]
+  ```
+- **Tests:**
+  - **New `tests/unit/test_discovery.py` cases** (or the existing discovery-parsing test file —
+    confirm exact filename before adding): feed `_parse_api_resources()` a synthetic
+    `kubectl api-resources -o wide` block with a CRD-shaped line whose VERBS column is
+    `create,delete,get,list,patch,update,watch`; assert the resulting `ResourceMeta.verbs ==
+    ["apply", "delete", "get", "patch"]` (sorted). A second case with VERBS `get,list,watch`
+    only asserts `verbs == ["get"]` — proving `apply` is correctly absent, not a blanket grant.
+  - **`tests/unit/test_resolver.py`** (or wherever `validate()` is unit-tested): a
+    discovery-sourced `ResourceMeta` fixture with `verbs=["get", "apply", "patch", "delete"]`
+    (post-translation shape) passes `validate(resource_meta, "apply", namespace)` — this is the
+    exact regression case the bug report was built from; today's fixture (raw API verbs) fails
+    it.
+  - **`tests/unit/test_core_table.py`** (or equivalent core-table loader test): `daemonsets`
+    resolves via `resolve(context, "daemonsets")` without touching the discovery cache/mock
+    kubectl call at all — proving it's served from the static table, matching the existing
+    assertion pattern for `deployments`/`statefulsets`.
+  - **`tests/unit/test_tools_apply.py`** (or `test_tools_patch.py`/`test_tools_delete.py`): a
+    `daemonsets` manifest through `handle_apply()`/`handle_patch()`/`handle_delete()` no longer
+    returns `verb_unsupported` — add alongside the existing per-resource-type fixtures.
+- **Docs (Definition of Done):** PRD.md §12's CRUD-coverage line updated from the "confirmed
+  broken by code trace" wording (added as part of validating this FR) to reflect the fix once
+  shipped, with the verification basis stated (code trace + the new discovery/resolver tests
+  above — still not a live-cluster re-verification, call that out explicitly rather than
+  overclaim).
+
+**Success Criteria (test coverage):** see PRD.md §15 FR23's five-item list — mirrored exactly by
+the test cases above, one-to-one.

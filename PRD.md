@@ -197,7 +197,12 @@ Rationale:
 **Current status against `main`:**
 - **Tool count:** met — 6 tools at `readonly`, 9 at `readwrite`, 12 at `admin` (limit 12).
 - **Ambiguous-resource / wrong-API-group criterion:** met (see Issue 38 in `CHANGELOG.md` for the period it was violated and how it was fixed).
-- **CRUD coverage of an arbitrary CRD with zero server-side changes:** architecturally holds — FR9/FR11/FR12/FR13 added tools/prompts without special-casing any CRD type. Not independently re-verified against a live cluster.
+- **CRUD coverage of an arbitrary CRD with zero server-side changes:** **read path holds**
+  (FR9/FR11/FR12/FR13 added tools/prompts without special-casing any CRD type); **write path
+  (`k_apply`) confirmed broken by code trace** for every CRD resolved via discovery —
+  `resolution/discovery.py` passes raw Kubernetes API verbs straight into `resource_meta.verbs`,
+  and `"apply"` is not a literal API verb, so it can never appear there regardless of RBAC. See
+  §15 FR23 for root cause and fix; not yet shipped.
 - **Token budget ≤40%:** unmeasured — §10's own instrumentation step was never built.
 - **Zero wrong-context mutations:** structurally enforced by R3 (no default `context`, no session state) across every tool; no dedicated named multi-context test scenario exists as its own artifact, but every handler test exercises distinct `context` values and asserts correct echo.
 
@@ -680,3 +685,94 @@ escaping problem applies identically to `k_logs`'s `logs` field — FR14 above a
 fixing two of three.
 
 **Status:** Done — see CHANGELOG.md FR22.
+
+### FR23. Translate discovery's raw Kubernetes API verbs into this project's MCP-tool verb vocabulary — `apply` is structurally unavailable on every CRD today
+
+**Motivation.** `resolution/models.py`'s `ResourceMeta.verbs` field is explicitly documented:
+`verbs: list[str]  # subset of {get, logs, apply, patch, delete, exec}` — this project's own
+tool-verb vocabulary, not Kubernetes API verbs. The static core table (`data/core_resources.toml`)
+honors this correctly (e.g. `verbs = ["get", "apply", "patch", "delete"]` for `deployments`). But
+`resolution/discovery.py`'s live-cluster fallback (`kubectl api-resources -o wide`, used for
+every resource type *not* in the static table — i.e. every CRD) parses kubectl's VERBS column
+**verbatim** into this same field: real Kubernetes API verbs like `create, delete,
+deletecollection, get, list, patch, update, watch`. This is a type-contract violation the model's
+own docstring already rules out, and it has a concrete functional consequence, confirmed by
+direct trace of `resolver.py:116`'s `if verb not in resource_meta.verbs` check: **`"apply"` is
+not a literal Kubernetes API verb** (kubectl apply is a client-side composite of create-or-patch,
+not a single REST verb the API server reports), so it can never appear in kubectl's raw VERBS
+output — meaning `k_apply` on *any* resource type resolved via discovery (every CRD: ArgoCD
+`Application`, Cilium policies, cert-manager `Certificate`, and any core-eligible type like
+`daemonsets` not yet hand-added to the static table) fails with `verb_unsupported` **regardless
+of the caller's actual RBAC permissions.** `get`/`patch`/`delete` happen to work today only
+because those three words coincidentally also exist as literal Kubernetes API verb names — an
+accident of overlap, not a designed translation. This directly undermines §12's Success Criteria
+("Full CRUD coverage of an arbitrary CRD... with zero server-side code changes") — that line is
+already self-qualified as "not independently re-verified against a live cluster," but is now
+confirmed false for the write path by direct code trace, not just unverified.
+
+Originally filed narrowly as "add `daemonsets` to the core table" (a real, valid gap — DaemonSets
+are a common built-in apps/v1 type with no principled reason to require discovery at all). But
+that fix alone would leave every actual CRD's `apply` path broken, which is the larger and more
+consequential defect the same root-cause trace surfaced. This FR fixes both: the general
+translation (so *every* discovery-resolved resource gets a correct verb set derived from its real
+RBAC-reported capabilities) and the specific `daemonsets` table row (so a common built-in type
+doesn't pay the discovery round-trip cost at all, consistent with its apps/v1 siblings already in
+the table).
+
+**Proposed shape:**
+- **General fix — `resolution/discovery.py`:** replace the verbatim `verbs = [v.strip() for v in
+  verbs_str.split(",") if v.strip()]` passthrough with a translation table mapping each real
+  Kubernetes API verb to the MCP tool-verb(s) it enables:
+  - `get` → `get`; `list` → `get` (a listing capability is exercised through `k_get`, not a
+    distinct MCP verb).
+  - `create` → `apply`; `update` → `apply`; `patch` → `apply`, `patch` (kubectl apply can create
+    a new object *or* strategic-merge-patch an existing one — either underlying capability
+    should enable it; `patch` also separately enables the direct `k_patch` tool).
+  - `delete` → `delete`.
+  - `watch`, `deletecollection` → no MCP verb (not exposed by any tool).
+  - Any verb kubectl reports that isn't in this table contributes nothing (safe default, not an
+    error — accommodates future/unknown API verbs without crashing).
+  - The resulting `resource_meta.verbs` is the **union** of the mapped sets for whatever verbs
+    kubectl actually reports for that identity in that context — meaning it still correctly
+    reflects real RBAC (if `patch`/`create`/`update` are genuinely denied, `apply` correctly
+    stays unavailable; this is a translation of reported capability, not an unconditional grant).
+  - `logs`/`exec` are deliberately excluded from the mapping — no CRD resolves to those verbs,
+    since R2's core-table-wins-ties rule means `pods` (the only type `k_logs`/`k_exec` ever
+    target) is always resolved from the static table, never discovery.
+- **Specific fix — `data/core_resources.toml`:** add a `[[resource]]` block for `daemonsets`
+  (canonical `"daemonsets"`, shortname `"ds"`, kind `"DaemonSet"`, group `"apps"`, version
+  `"v1"`, namespaced `true`, `verbs = ["get", "apply", "patch", "delete"]` — identical shape to
+  the adjacent `deployments`/`statefulsets`/`replicasets` entries).
+
+**Interaction with existing rules:**
+- **R2** — no change to the two-tier priority; this only fixes what discovery produces once it's
+  reached, and adds one more type that no longer needs to reach it.
+- **R6** — unaffected; ambiguous-match handling is orthogonal to per-entry verb population.
+- **R8** — this *is* R8's pre-execution validation; the fix makes that validation correctly
+  reflect reality for discovery-sourced entries instead of systematically under-reporting
+  `apply` capability.
+- **§12 Success Criteria** — once shipped, the "CRUD coverage of an arbitrary CRD" line should be
+  updated from "architecturally holds... not independently re-verified" to a claim actually
+  backed by this fix, and the update should say so explicitly rather than carry the old hedge
+  forward unchanged.
+
+**Success Criteria (test coverage):**
+1. Discovery-parsing unit test: a synthetic `kubectl api-resources -o wide` line with raw verbs
+   `create,delete,get,list,patch,update,watch` for a CRD-shaped entry produces
+   `resource_meta.verbs == {"get", "apply", "patch", "delete"}` (order-independent) — proving the
+   translation, not passthrough.
+2. A synthetic line with only `get,list,watch` (a read-only CRD, e.g. RBAC denies write)
+   produces `resource_meta.verbs == {"get"}` — proving `apply` is correctly *absent* when the
+   underlying create/patch/update capability is absent, not unconditionally granted.
+3. `resolver.py`/`validate()` integration test: a discovery-resolved (non-core-table) resource
+   with `create`/`patch`/`update` in its raw verbs successfully passes `validate(resource_meta,
+   "apply", namespace)` — the exact call `k_apply`'s handler makes — where today it fails with
+   `verb_unsupported`.
+4. `daemonsets` resolves via the static core table (not discovery) and `k_apply`/`k_patch`/
+   `k_delete` against a `daemonsets` manifest pass `validate()` without a live cluster (same
+   fixture pattern as the existing `deployments`/`statefulsets` core-table tests).
+5. Full suite passes with zero regressions; no existing discovery-resolved-resource test's
+   expected verb set narrows as a side effect of the translation (only `apply` should newly
+   appear where `create`/`patch`/`update` was already present in the raw fixture).
+
+**Status:** Proposed, not yet accepted into v1 scope. Implementation plan at SPEC.md §8 FR23.

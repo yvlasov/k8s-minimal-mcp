@@ -55,10 +55,53 @@ implemented" label written before it was actually true). A Status line may not c
 | FR20 | Rename `jsonpath_template`→`jsonpath`, drop `output="jsonpath"`, unconditional precedence over `output` | Done | PRD §15 FR20, SPEC §8 FR20 |
 | FR21 | Distinguishable error codes: timeout/connectivity, authentication vs. authorization, kubectl-level argument failures | Done — see CHANGELOG.md | PRD §15 FR21, SPEC §8 FR21 |
 | FR22 | Emit multiline tool output (`data.output`) as a JSON array of lines instead of an escaped string — the escaped form defeats grep/line-addressable reads on spilled-over tool-output files | Done — see CHANGELOG.md | PRD §15 FR22, SPEC §8 FR22 |
+| FR23 | Translate discovery's raw Kubernetes API verbs into this project's MCP verb vocabulary (`apply` is structurally unavailable on every CRD today, not just daemonsets); add `daemonsets` to the core table | Proposed | PRD §15 FR23, SPEC §8 FR23 |
+
+**FR23 — broadened 2026-09-28 from its original narrow framing.** Originally submitted as "add
+`daemonsets` to the core table" (valid — `k_apply` on a DaemonSet manifest fails with
+`{"error":"verb_unsupported","resource":"daemonsets","verb":"apply"}`, and `daemonsets` is
+genuinely absent from `data/core_resources.toml`). Validated against source and found the same
+root cause is more general than the original framing: `resolution/discovery.py` parses kubectl's
+live VERBS column **verbatim** into `ResourceMeta.verbs`, but that field's own docstring
+(`resolution/models.py`) documents it as "subset of {get, logs, apply, patch, delete, exec}" —
+this project's tool-verb vocabulary, not raw Kubernetes API verbs. `"apply"` is not a literal API
+verb (kubectl apply is a client-side create-or-patch composite), so it can never appear in
+kubectl's reported VERBS column — meaning **`k_apply` is structurally broken for every CRD
+resolved via discovery**, not just DaemonSets, regardless of the caller's actual RBAC. This
+contradicts PRD §12's "CRUD coverage of an arbitrary CRD" success criterion, now corrected there
+to state the write-path gap explicitly. Full root cause, the verb-translation design, and the
+daemonsets table-row fix are written up in PRD.md §15 FR23 / SPEC.md §8 FR23 (not duplicated here
+per this file's pointer-only convention).
 
 ---
 
 ## OPEN (not yet fixed)
+
+| # | Title | File(s) |
+|---|---|---|
+| 52 | `k_get_helm_release` fails to decode any real Helm v3 release — missing a second base64 layer before gzip | `tools/get_helm_release.py` |
+
+**Issue 52 detail:** `_decode_release_data()` (`tools/get_helm_release.py:34-51`) calls
+`base64.b64decode()` exactly once before `gzip.decompress()`. Helm v3 stores a release as
+`base64(gzip(json))` *inside* the Secret's `.data.release` field — and `kubectl get secret -o
+json` (this tool's retrieval path) does not itself decode `.data` values, so the string handed to
+`_decode_release_data()` still carries the outer Kubernetes API base64 layer on top of Helm's own
+base64 layer. One decode strips only the k8s layer; the remaining Helm layer (base64 text starting
+`H4sI...`, i.e. base64-encoded gzip magic bytes) is then handed to `gzip.decompress()` directly and
+rejected.
+
+Reproduction (raw tool output, secret/release names generic):
+```
+{"context":"<context>","tool":"k_get_helm_release","success":false,"error":"helm_release_decode_failed","release":"cilium","namespace":"kube-system","stage":"gzip","detail":"Not a gzipped file (b'H4')"}
+```
+
+Workaround confirmed manually: fetch `.data.release` via `k_get`/`jsonpath`, then
+`base64 -d | base64 -d | gunzip | jq` — two base64 decodes, not one — successfully recovers the
+release JSON (`.config`, `.chart`, `.info`, etc.).
+
+Suggested fix: in `_decode_release_data()`, base64-decode twice (k8s Secret API layer, then Helm's
+own internal layer) before `gzip.decompress()`. This is not an edge case — every real Helm v3
+release secret hits it, so the tool as written cannot successfully decode genuine cluster data.
 
 ---
 
