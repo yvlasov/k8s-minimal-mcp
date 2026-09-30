@@ -9,6 +9,32 @@ Ordered newest-first within each section, matching the order these were actually
 
 ---
 
+## Defects
+
+### Issue 52 — `k_get_helm_release` fails to decode any real Helm v3 release — missing a second base64 layer before gzip
+
+**Files:** `src/k8s_mcp/tools/get_helm_release.py`, `tests/unit/test_tools_get_helm_release.py`
+
+**Root cause:** `_decode_release_data()` called `base64.b64decode()` exactly once before
+`gzip.decompress()`. Helm v3 stores a release as `base64(gzip(json))` *inside* the Secret's
+`.data.release` field — and `kubectl get secret -o json` does not itself decode `.data` values,
+so the string handed to `_decode_release_data()` still carries the outer Kubernetes API base64
+layer on top of Helm's own base64 layer. One decode strips only the k8s layer; the remaining
+Helm layer (base64 text starting `H4sI...`, i.e. base64-encoded gzip magic bytes) was then
+handed to `gzip.decompress()` directly and rejected with "Not a gzipped file (b'H4')".
+
+**Fix:** `_decode_release_data()` now base64-decodes twice (k8s Secret API layer, then Helm's
+own internal layer) before `gzip.decompress()`. Error stages renamed to `base64_k8s`,
+`base64_helm`, `gzip`, `json` to distinguish the two decode stages.
+
+**Tests:** Updated `_encode_release()` and `_helm_secret()` helpers to use double base64
+encoding (`_encode_k8s_secret_release()`). Updated decode failure tests to test
+`base64_k8s` and `base64_helm` failure stages with invalid base64 input.
+
+416 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
+
+---
+
 ## Feature Requests
 
 ### FR22 — Emit multiline tool output as a JSON array of lines instead of an escaped string

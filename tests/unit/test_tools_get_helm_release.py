@@ -20,6 +20,12 @@ def _encode_release(data: dict) -> str:
     return base64.b64encode(compressed).decode("ascii")
 
 
+def _encode_k8s_secret_release(data: dict) -> str:
+    """Encode a dict as base64(base64(gzip(json))) — the k8s Secret .data.release format."""
+    inner_b64 = _encode_release(data)
+    return base64.b64encode(inner_b64.encode("ascii")).decode("ascii")
+
+
 def _helm_secret(release: str, revision: int, data: dict) -> dict:
     """Build a Kubernetes Secret object with Helm labels."""
     return {
@@ -34,7 +40,7 @@ def _helm_secret(release: str, revision: int, data: dict) -> dict:
                 "version": str(revision),
             },
         },
-        "data": {"release": _encode_release(data)},
+        "data": {"release": _encode_k8s_secret_release(data)},
     }
 
 
@@ -180,10 +186,10 @@ class TestHandleGetHelmRelease:
 
     @patch("src.k8s_mcp.tools.get_helm_release.resolve")
     @patch("src.k8s_mcp.tools.get_helm_release.run_kubectl_checked")
-    def test_decode_failed_base64_stage(self, mock_run, mock_resolve, secret_meta):
+    def test_decode_failed_base64_k8s_stage(self, mock_run, mock_resolve, secret_meta):
         mock_resolve.return_value = secret_meta
         secret = _helm_secret("myapp", 1, _release_data())
-        # Corrupt the base64 value
+        # Corrupt the base64 value (k8s layer)
         secret["data"]["release"] = "not-valid-base64!!!"
         mock_run.return_value = _listing_stdout([secret])
 
@@ -191,31 +197,33 @@ class TestHandleGetHelmRelease:
 
         assert result["success"] is False
         assert result["error"] == "helm_release_decode_failed"
-        assert result["stage"] == "base64"
+        assert result["stage"] == "base64_k8s"
 
     @patch("src.k8s_mcp.tools.get_helm_release.resolve")
     @patch("src.k8s_mcp.tools.get_helm_release.run_kubectl_checked")
-    def test_decode_failed_gzip_stage(self, mock_run, mock_resolve, secret_meta):
+    def test_decode_failed_base64_helm_stage(self, mock_run, mock_resolve, secret_meta):
         mock_resolve.return_value = secret_meta
-        # Valid base64 but not valid gzip
-        bad_gzip_b64 = base64.b64encode(b"not gzip data at all").decode("ascii")
+        # Valid k8s base64 but invalid helm base64 (contains invalid chars)
+        bad_helm_b64 = "not-valid-base64-at-all!!!"
+        k8s_encoded = base64.b64encode(bad_helm_b64.encode("ascii")).decode("ascii")
         secret = _helm_secret("myapp", 1, _release_data())
-        secret["data"]["release"] = bad_gzip_b64
+        secret["data"]["release"] = k8s_encoded
         mock_run.return_value = _listing_stdout([secret])
 
         result = handle_get_helm_release("test-context", "myapp", "default")
 
         assert result["success"] is False
         assert result["error"] == "helm_release_decode_failed"
-        assert result["stage"] == "gzip"
+        assert result["stage"] == "base64_helm"
 
     @patch("src.k8s_mcp.tools.get_helm_release.resolve")
     @patch("src.k8s_mcp.tools.get_helm_release.run_kubectl_checked")
     def test_decode_failed_json_stage(self, mock_run, mock_resolve, secret_meta):
         mock_resolve.return_value = secret_meta
-        # Valid base64 + valid gzip, but not valid JSON
+        # Valid base64 (k8s + helm layers) + valid gzip, but not valid JSON
         bad_json = gzip.compress(b"this is not json")
-        bad_json_b64 = base64.b64encode(bad_json).decode("ascii")
+        inner_b64 = base64.b64encode(bad_json).decode("ascii")
+        bad_json_b64 = base64.b64encode(inner_b64.encode("ascii")).decode("ascii")
         secret = _helm_secret("myapp", 1, _release_data())
         secret["data"]["release"] = bad_json_b64
         mock_run.return_value = _listing_stdout([secret])

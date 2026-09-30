@@ -32,11 +32,18 @@ from ..resolution import DiscoveryCache, resolve, validate
 
 
 def _decode_release_data(raw_b64: str) -> tuple[dict[str, Any] | None, str | None, str | None]:
-    """Decode base64 → gzip → json. Returns (data, error_stage, error_detail)."""
+    """Decode base64 (k8s layer) → base64 (Helm layer) → gzip → json. Returns (data, error_stage, error_detail)."""
+    # First decode: k8s Secret API base64 layer
     try:
-        compressed = base64.b64decode(raw_b64, validate=True)
+        inner_b64 = base64.b64decode(raw_b64, validate=True)
     except (binascii.Error, ValueError) as e:
-        return None, "base64", str(e)
+        return None, "base64_k8s", str(e)
+
+    # Second decode: Helm's internal base64 layer
+    try:
+        compressed = base64.b64decode(inner_b64, validate=True)
+    except (binascii.Error, ValueError) as e:
+        return None, "base64_helm", str(e)
 
     try:
         decompressed = gzip.decompress(compressed)

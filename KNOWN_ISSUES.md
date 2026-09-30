@@ -77,32 +77,6 @@ per this file's pointer-only convention).
 
 ## OPEN (not yet fixed)
 
-| # | Title | File(s) |
-|---|---|---|
-| 52 | `k_get_helm_release` fails to decode any real Helm v3 release — missing a second base64 layer before gzip | `tools/get_helm_release.py` |
-
-**Issue 52 detail:** `_decode_release_data()` (`tools/get_helm_release.py:34-51`) calls
-`base64.b64decode()` exactly once before `gzip.decompress()`. Helm v3 stores a release as
-`base64(gzip(json))` *inside* the Secret's `.data.release` field — and `kubectl get secret -o
-json` (this tool's retrieval path) does not itself decode `.data` values, so the string handed to
-`_decode_release_data()` still carries the outer Kubernetes API base64 layer on top of Helm's own
-base64 layer. One decode strips only the k8s layer; the remaining Helm layer (base64 text starting
-`H4sI...`, i.e. base64-encoded gzip magic bytes) is then handed to `gzip.decompress()` directly and
-rejected.
-
-Reproduction (raw tool output, secret/release names generic):
-```
-{"context":"<context>","tool":"k_get_helm_release","success":false,"error":"helm_release_decode_failed","release":"cilium","namespace":"kube-system","stage":"gzip","detail":"Not a gzipped file (b'H4')"}
-```
-
-Workaround confirmed manually: fetch `.data.release` via `k_get`/`jsonpath`, then
-`base64 -d | base64 -d | gunzip | jq` — two base64 decodes, not one — successfully recovers the
-release JSON (`.config`, `.chart`, `.info`, etc.).
-
-Suggested fix: in `_decode_release_data()`, base64-decode twice (k8s Secret API layer, then Helm's
-own internal layer) before `gzip.decompress()`. This is not an edge case — every real Helm v3
-release secret hits it, so the tool as written cannot successfully decode genuine cluster data.
-
 ---
 
 ## TODO
@@ -149,6 +123,7 @@ in `CHANGELOG.md`.
 
 | # | Title | File(s) |
 |---|---|---|
+| 52 | `k_get_helm_release` fails to decode any real Helm v3 release — missing a second base64 layer before gzip | `tools/get_helm_release.py`, `test_tools_get_helm_release.py` |
 | 51 | FR20's `jsonpath_template`→`jsonpath` rename missed `invalid_jsonpath_template()`'s response field and docstring | `errors/core.py`, `test_tools_get.py`, `test_tools_apply.py`, `test_tools_patch.py` |
 | 49 | FR16's `mypy` config disabled its own error codes, silently defeating `disallow_untyped_defs`/`warn_return_any` | `pyproject.toml`, `resolution/resolver.py`, `tools/*.py`, `resolution/core_table.py`, `tools/list_resources.py`, `server.py` |
 | 41 | No test exercised `server.py`'s `_dispatch()` path | `tests/unit/test_server.py`, `server.py` |
