@@ -8,6 +8,7 @@ Every tool goes through this — never call subprocess directly.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from dataclasses import dataclass
 from typing import Any
@@ -55,12 +56,14 @@ def run_kubectl(
     base_args += args
 
     try:
+        proc_env = os.environ.copy()
         proc = subprocess.run(
             base_args,
             input=stdin,
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=proc_env,
         )
         return KubectlResult(
             stdout=proc.stdout,
