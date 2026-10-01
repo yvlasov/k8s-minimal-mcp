@@ -33,6 +33,32 @@ encoding (`_encode_k8s_secret_release()`). Updated decode failure tests to test
 
 416 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
 
+### Issue 53 — `annotation_selector` fails to match annotations with dots in key names (e.g., `prometheus.io/scrape=true`)
+
+**Files:** `src/k8s_mcp/resolution/annotation_selector.py`
+
+**Root cause:** The annotation selector parser regex `_TERM_RE` in `annotation_selector.py` did not allow dots (`.`) in annotation keys:
+
+```python
+_TERM_RE = re.compile(
+    r'^([A-Za-z0-9][A-Za-z0-9/_-]*)(!=)(.+)$'   # key!=value
+    r'|^([A-Za-z0-9][A-Za-z0-9/_-]*)=(.+)$'      # key=value
+    r'|^([A-Za-z0-9][A-Za-z0-9/_-]*)$'            # bare key
+)
+```
+
+Kubernetes annotation keys commonly contain dots (e.g., `prometheus.io/scrape`, `sidecar.istio.io/status`), but the regex only allowed `[A-Za-z0-9/_-]`, causing `annotation_selector=prometheus.io/scrape=true` to fail with `annotation_selector: invalid term syntax: 'prometheus.io/scrape=true'`.
+
+**Fix:** Updated the regex to allow dots in annotation keys by changing `[A-Za-z0-9/_-]` to `[A-Za-z0-9./_-]`:
+
+```python
+_TERM_RE = re.compile(
+    r'^([A-Za-z0-9][A-Za-z0-9./_-]*)(!=)(.+)$'   # key!=value
+    r'|^([A-Za-z0-9][A-Za-z0-9./_-]*)=(.+)$'      # key=value
+    r'|^([A-Za-z0-9][A-Za-z0-9./_-]*)$'            # bare key
+)
+```
+
 ---
 
 ## Feature Requests

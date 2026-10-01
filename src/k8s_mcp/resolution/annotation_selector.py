@@ -10,12 +10,12 @@ import re
 from typing import Any
 
 # Regex for a single term: key=value, key!=value, or bare key
-# Key: starts with letter/digit, may contain letters/digits/-/_/.
+# Key: starts with letter/digit, may contain letters/digits/-/_/./.
 # Value: any non-comma characters (simplified — real k8s allows more)
 _TERM_RE = re.compile(
-    r'^([A-Za-z0-9][A-Za-z0-9/_-]*)(!=)(.+)$'   # key!=value
-    r'|^([A-Za-z0-9][A-Za-z0-9/_-]*)=(.+)$'      # key=value
-    r'|^([A-Za-z0-9][A-Za-z0-9/_-]*)$'            # bare key
+    r'^([A-Za-z0-9][A-Za-z0-9./_-]*)(!=)(.+)$'   # key!=value
+    r'|^([A-Za-z0-9][A-Za-z0-9./_-]*)=(.+)$'      # key=value
+    r'|^([A-Za-z0-9][A-Za-z0-9./_-]*)$'            # bare key
 )
 
 # Split on commas, but respect quoted values (simplified — no nested quotes)
