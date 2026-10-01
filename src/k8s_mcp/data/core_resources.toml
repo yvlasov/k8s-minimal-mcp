@@ -238,7 +238,7 @@ verbs = ["get", "apply", "patch", "delete"]
 
 [[resource]]
 canonical = "limitranges"
-shortnames = ["limitrange"]
+shortnames = ["limits"]
 kind = "LimitRange"
 group = ""
 version = "v1"
@@ -265,7 +265,7 @@ verbs = ["get", "apply", "patch", "delete"]
 
 [[resource]]
 canonical = "validatingwebhookconfigurations"
-shortnames = ["validatingwebhookcfg"]
+shortnames = []
 kind = "ValidatingWebhookConfiguration"
 group = "admissionregistration.k8s.io"
 version = "v1"
@@ -274,7 +274,7 @@ verbs = ["get", "apply", "patch", "delete"]
 
 [[resource]]
 canonical = "mutatingwebhookconfigurations"
-shortnames = ["mutatingwebhookcfg"]
+shortnames = []
 kind = "MutatingWebhookConfiguration"
 group = "admissionregistration.k8s.io"
 version = "v1"

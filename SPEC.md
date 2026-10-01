@@ -912,7 +912,7 @@ the per-tool test cases, one-to-one.
 
 ### FR25. Add RBAC and common built-in resources to the core table
 
-**Status: Proposed, not yet implemented.**
+**Status: Done — see CHANGELOG.md FR25.**
 
 - **Motivation:** The core resources table (`src/k8s_mcp/data/core_resources.toml`) is missing
   Kubernetes built-in resources that are stable and commonly used. Without these in the core

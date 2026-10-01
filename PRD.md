@@ -58,7 +58,7 @@ An MCP server exposing a small, fixed set of verb-based tools, parameterized by 
 
 **R1. Tools map to verbs, not resource types.** Fixed tool set: `get, logs, apply, patch, delete, exec` (+ `describe`, pending §13). `rollout` and `scale` excluded from v1. Two deliberate, named exceptions: `k_get_secret_to_file` (§15 FR9) and `k_get_helm_release` (§15 FR12) — each resource-specific by design because the resource type itself demands different handling, not a precedent for further exceptions.
 
-**R2. Resource names resolve through a two-tier lookup.** A hardcoded core table (pod, deployment, statefulset, replicaset, service, pv, pvc, configmap, secret, networkpolicy, ingress, node, namespace, job, cronjob, endpoints, events) takes priority, falling back to per-context dynamic discovery (`kubectl api-resources`) for CRDs and extensions. The core table's job is tie-break priority and cold-start resolution, not correctness.
+**R2. Resource names resolve through a two-tier lookup.** A hardcoded core table (see `src/k8s_mcp/data/core_resources.toml`) takes priority, falling back to per-context dynamic discovery (`kubectl api-resources`) for CRDs and extensions. The core table's job is tie-break priority and cold-start resolution, not correctness.
 
 **R3. `context` is mandatory on every tool call as input, and echoed as a mandatory field in every tool output.** No default, no session-scoped state, no implicit reuse. A context is the kubeconfig user+cluster+namespace triple — the same physical cluster may be reachable under several contexts with different identities. Output echo makes every result self-identifying in interleaved cross-context sessions.
 
@@ -771,3 +771,33 @@ the table).
    appear where `create`/`patch`/`update` was already present in the raw fixture).
 
 **Status:** Done — see CHANGELOG.md FR23.
+
+### FR24. Multi-resource operations: add `names: list[str]` param to `k_get`/`k_delete`/`k_patch`/`k_describe`
+
+**Motivation.** Users need to operate on multiple resource instances at once without calling the tool repeatedly. The existing tools only accepted a single `name` parameter, requiring the model to issue multiple tool calls for batch operations.
+
+**Proposed shape:**
+- Add `names: list[str] | None` parameter to `k_get`, `k_delete`, `k_patch`, `k_describe`.
+- For `k_get`/`k_delete`, `name` remains optional but `names` is an alternative; for `k_patch`/`k_describe`, `name` is changed to optional and `names` is the alternative.
+- Validation ensures exactly one of `name`/`names` is set. `names` is incompatible with `all_namespaces` (for `k_get`) and `label_selector` (for `k_delete`).
+- For `k_get`, when `names` is provided, returns a pruned list of individual resource objects.
+
+**Interaction with existing rules:**
+- **R2** — no change to resource resolution; only the parameter shape changes.
+- **R8** — pre-execution validation ensures exactly one of `name`/`names` is provided.
+- **R9** — `k_get` with `names` returns a pruned list of individual resources.
+
+**Status:** Done — see CHANGELOG.md FR24.
+
+### FR25. Add RBAC and common built-in resources to the core table
+
+**Motivation.** The core resources table (`src/k8s_mcp/data/core_resources.toml`) was missing Kubernetes built-in resources that are stable and commonly used: RBAC resources (`serviceaccounts`, `roles`, `clusterroles`, `rolebindings`, `clusterrolebindings`), scheduling/resource management (`priorityclasses`, `poddisruptionbudgets`, `limitranges`, `resourcequotas`), autoscaling (`horizontalpodautoscalers`), and admission controllers (`validatingwebhookconfigurations`, `mutatingwebhookconfigurations`). Without these in the core table, they fall through to per-context `kubectl api-resources` discovery, which is unnecessary for these built-in, stable resource types.
+
+**Proposed shape:**
+- Add the 12 new resource blocks to `src/k8s_mcp/data/core_resources.toml` with correct GVK, shortnames, namespaced status, and `verbs = ["get", "apply", "patch", "delete"]`.
+
+**Interaction with existing rules:**
+- **R2** — these resources now bypass per-context discovery and resolve from the static core table.
+- **R8** — pre-execution validation correctly reflects the supported verbs for these resources.
+
+**Status:** Done — see CHANGELOG.md FR25.

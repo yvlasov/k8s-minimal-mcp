@@ -71,7 +71,7 @@ encoding (`_encode_k8s_secret_release()`). Updated decode failure tests to test
 **Files:** `src/k8s_mcp/data/core_resources.toml`, `KNOWN_ISSUES.md`, `SPEC.md`, `CHANGELOG.md`
 
 **What changed:**
-1. **`core_resources.toml`:** Added 13 new built-in resource blocks to the core table:
+1. **`core_resources.toml`:** Added 12 new built-in resource blocks to the core table:
    - RBAC: `serviceaccounts` (sa), `roles`, `clusterroles` (cr), `rolebindings`, `clusterrolebindings` (crb)
    - Scheduling & Resource Management: `priorityclasses` (pc), `poddisruptionbudgets` (pdb), `limitranges` (limitrange), `resourcequotas` (quota)
    - Autoscaling: `horizontalpodautoscalers` (hpa)
