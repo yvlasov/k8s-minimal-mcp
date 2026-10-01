@@ -1,9 +1,9 @@
 """k_patch tool (PRD §6).
 
-Patch a Kubernetes resource.
+Patch a Kubernetes resource or resources by name (or names).
 
-Required: context, resource, name, patch
-Optional: namespace, type (strategic/merge/json), dry_run
+Required: context, resource, patch
+Optional: name, names, namespace, type (strategic/merge/json), dry_run
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..errors import invalid_jsonpath_template, invalid_output
+from ..errors import invalid_jsonpath_template, invalid_output, invalid_selector
 from ..kubectl.runner import run_kubectl_checked
 from ..output import apply_output_format, envelope, prune
 from ..resolution import DiscoveryCache, resolve, validate
@@ -21,9 +21,10 @@ from ..resolution.jsonpath_validation import check_nested_braces
 def handle_patch(
     context: str,
     resource: str,
-    name: str,
-    patch: str,
+    name: str | None = None,
+    patch: str | None = None,
     *,
+    names: list[str] | None = None,
     namespace: str | None = None,
     type: str = "strategic",  # "strategic", "merge", "json"
     dry_run: str = "none",
@@ -69,6 +70,23 @@ def handle_patch(
             context, "k_patch", success=False,
         )
 
+    # Fail-fast: exactly one of name or names must be set, and patch must be set
+    if patch is None:
+        return envelope(
+            invalid_selector(context, resource, detail="must specify patch parameter"),
+            context, "k_patch", success=False,
+        )
+    if name is None and names is None:
+        return envelope(
+            invalid_selector(context, resource, detail="must specify either name or names parameter"),
+            context, "k_patch", success=False,
+        )
+    if name is not None and names is not None:
+        return envelope(
+            invalid_selector(context, name, detail="cannot specify both name and names parameters"),
+            context, "k_patch", success=False,
+        )
+
     # Resolve resource → GVK
     res = resolve(context, resource, discovery_cache=discovery_cache)
     if isinstance(res, dict):
@@ -83,7 +101,11 @@ def handle_patch(
         return envelope(validation, context, "k_patch", success=False)
 
     # Build kubectl args
-    args = ["patch", resource_meta.fully_qualified_name, name]
+    args = ["patch", resource_meta.fully_qualified_name]
+    if name:
+        args.append(name)
+    elif names:
+        args.extend(names)
     if namespace:
         args.extend(["-n", namespace])
     args.extend(["--type", type])

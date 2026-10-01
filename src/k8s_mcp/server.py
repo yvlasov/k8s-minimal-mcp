@@ -108,14 +108,14 @@ def main(argv: list[str] | None = None) -> None:
                              search=search)
 
     if "get" in allowed:
-        @app.tool(name="k_get", description="k_get: resource: Resource type; name: Resource name; namespace: Namespace; all_namespaces: List across all namespaces; label_selector: Kubernetes label selector; field_selector: Kubernetes field selector; output: Output format (name/json/yaml/wide); jsonpath: JsonPath template — setting this alone is sufficient to enable jsonpath mode and overrides any output value; output='jsonpath' is no longer valid, do not set it; annotation_selector: Filter by annotations (key=value, key!=value, key); grep: Filter output lines by regex (only meaningful with output=wide); grep_ignore_case: Case-insensitive grep matching")
-        def get(context: str, resource: str, name: str | None = None, namespace: str | None = None,
+        @app.tool(name="k_get", description="k_get: resource: Resource type; name: Resource name; names: List of resource names for batch operations; namespace: Namespace; all_namespaces: List across all namespaces; label_selector: Kubernetes label selector; field_selector: Kubernetes field selector; output: Output format (name/json/yaml/wide); jsonpath: JsonPath template — setting this alone is sufficient to enable jsonpath mode and overrides any output value; output='jsonpath' is no longer valid, do not set it; annotation_selector: Filter by annotations (key=value, key!=value, key); grep: Filter output lines by regex (only meaningful with output=wide); grep_ignore_case: Case-insensitive grep matching")
+        def get(context: str, resource: str, name: str | None = None, names: list[str] | None = None, namespace: str | None = None,
                 all_namespaces: bool = False, label_selector: str | None = None,
                 field_selector: str | None = None, output: str | None = None,
                 jsonpath: str | None = None, annotation_selector: str | None = None,
                 grep: str | None = None, grep_ignore_case: bool = False) -> dict[str, Any]:
             return _dispatch("get", handle_get, context, discovery_cache, allow_namespaces,
-                             resource=resource, name=name, namespace=namespace,
+                             resource=resource, name=name, names=names, namespace=namespace,
                              all_namespaces=all_namespaces, label_selector=label_selector,
                              field_selector=field_selector, output=output,
                              jsonpath=jsonpath, annotation_selector=annotation_selector,
@@ -163,33 +163,34 @@ def main(argv: list[str] | None = None) -> None:
                              output=output, jsonpath=jsonpath)
 
     if "patch" in allowed:
-        @app.tool(name="k_patch", description="k_patch: resource: Resource type; name: Resource name to patch; patch: JSON patch document; namespace: Namespace; type: Patch type; dry_run: Dry-run mode; output: Output format (json/yaml); jsonpath: JsonPath template — setting this alone is sufficient to enable jsonpath mode and overrides any output value; output='jsonpath' is no longer valid, do not set it)")
-        def patch(context: str, resource: str, name: str, patch: str,
+        @app.tool(name="k_patch", description="k_patch: resource: Resource type; name: Resource name to patch; names: List of resource names to patch; patch: JSON patch document; namespace: Namespace; type: Patch type; dry_run: Dry-run mode; output: Output format (json/yaml); jsonpath: JsonPath template — setting this alone is sufficient to enable jsonpath mode and overrides any output value; output='jsonpath' is no longer valid, do not set it)")
+        def patch(context: str, resource: str, *, name: str | None = None, names: list[str] | None = None, patch: str,
                   namespace: str | None = None, type: str = "strategic",  # noqa: A002
                   dry_run: str = "none", output: str | None = None,
                   jsonpath: str | None = None) -> dict[str, Any]:
             return _dispatch("patch", handle_patch, context, discovery_cache, allow_namespaces,
-                             resource=resource, name=name, patch=patch,
+                             resource=resource, name=name, names=names, patch=patch,
                              namespace=namespace, type=type, dry_run=dry_run,
                              output=output, jsonpath=jsonpath)
 
     if "delete" in allowed:
-        @app.tool(name="k_delete", description="k_delete: resource: Resource type; name: Resource name; namespace: Namespace; label_selector: Delete all resources matching this label selector; dry_run: Dry-run mode")
+        @app.tool(name="k_delete", description="k_delete: resource: Resource type; name: Resource name; names: List of resource names for batch operations; namespace: Namespace; label_selector: Delete all resources matching this label selector; dry_run: Dry-run mode")
         def delete(context: str, resource: str, name: str | None = None,
+                   names: list[str] | None = None,
                    namespace: str | None = None, label_selector: str | None = None,
                    dry_run: str = "none") -> dict[str, Any]:
             return _dispatch("delete", handle_delete, context, discovery_cache, allow_namespaces,
-                             resource=resource, name=name, namespace=namespace,
+                             resource=resource, name=name, names=names, namespace=namespace,
                              label_selector=label_selector, dry_run=dry_run)
 
     # Conditional: k_describe (PRD §13 open)
     if _SHIP_DESCRIBE and "describe" in allowed:
-        @app.tool(name="k_describe", description="k_describe: resource: Resource type; name: Resource name; namespace: Namespace; grep: Filter describe output lines by regex; grep_ignore_case: Case-insensitive grep matching")
-        def describe(context: str, resource: str, name: str,
+        @app.tool(name="k_describe", description="k_describe: resource: Resource type; name: Resource name; names: List of resource names for batch operations; namespace: Namespace; grep: Filter describe output lines by regex; grep_ignore_case: Case-insensitive grep matching")
+        def describe(context: str, resource: str, *, name: str | None = None, names: list[str] | None = None,
                      namespace: str | None = None,
                      grep: str | None = None, grep_ignore_case: bool = False) -> dict[str, Any]:
             return _dispatch("describe", handle_describe, context, discovery_cache, allow_namespaces,
-                             resource=resource, name=name, namespace=namespace,
+                             resource=resource, name=name, names=names, namespace=namespace,
                              grep=grep, grep_ignore_case=grep_ignore_case)
 
     # Conditional: k_exec (admin only, PRD §13 open)

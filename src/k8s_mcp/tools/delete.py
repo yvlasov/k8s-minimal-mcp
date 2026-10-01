@@ -1,9 +1,9 @@
 """k_delete tool (PRD §6).
 
-Delete a Kubernetes resource.
+Delete a Kubernetes resource or resources by name (or names).
 
 Required: context, resource
-Optional: name, namespace, label_selector, dry_run
+Optional: name, names, namespace, label_selector, dry_run
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ..errors import invalid_selector
 from ..kubectl.runner import run_kubectl_checked
 from ..output import envelope, prune
 from ..resolution import DiscoveryCache, resolve, validate
@@ -21,6 +22,7 @@ def handle_delete(
     resource: str,
     *,
     name: str | None = None,
+    names: list[str] | None = None,
     namespace: str | None = None,
     label_selector: str | None = None,
     dry_run: str = "none",
@@ -40,10 +42,24 @@ def handle_delete(
         validation["context"] = context
         return envelope(validation, context, "k_delete", success=False)
 
+    # Fail-fast: exactly one of name or names must be set, or label_selector
+    if name is not None and names is not None:
+        return envelope(
+            invalid_selector(context, name, detail="cannot specify both name and names parameters"),
+            context, "k_delete", success=False,
+        )
+    if names is not None and label_selector is not None:
+        return envelope(
+            invalid_selector(context, str(names), detail="cannot combine names parameter with label_selector"),
+            context, "k_delete", success=False,
+        )
+
     # Build kubectl args
     args = ["delete", resource_meta.fully_qualified_name]
     if name:
         args.append(name)
+    elif names:
+        args.extend(names)
     elif label_selector:
         args.append("-l")
         args.append(label_selector)

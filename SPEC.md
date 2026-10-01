@@ -857,3 +857,55 @@ effect of the rename.
 
 **Success Criteria (test coverage):** see PRD.md §15 FR23's five-item list — mirrored exactly by
 the test cases above, one-to-one.
+
+### FR24. Multi-resource operations: add `names: list[str]` param to `k_get`/`k_delete`/`k_patch`/`k_describe`
+
+**Status: Proposed, not yet implemented** — plan ready to execute.
+
+- **Motivation:** kubectl supports multiple names in a single invocation (`kubectl get pods pod1 pod2 pod3`,
+  `kubectl delete pods pod1 pod2 pod3`, `kubectl patch deploy dep1 dep2 -p '...'`, etc.), but the MCP
+  tools currently expose only a single `name` parameter. To expose this kubectl-equivalent pattern,
+  add a `names: list[str] | None` parameter to 4 tools: `k_get`, `k_delete`, `k_patch`, `k_describe`.
+  Option A (change `name: str` to `name: str | list[str]`) is rejected because union types generate
+  awkward JSON Schema (`anyOf: [string, array]`) that LLMs struggle to parse. Option B (new `names`
+  param) gives each parameter a single, unambiguous type and a clear "exactly one of `name`/`names`"
+  validation constraint.
+
+- **Tools to change:**
+  - `k_get`: add `names: list[str] | None = None` param. Validation: exactly one of `name`/`names`;
+    `names` + `all_namespaces=True` → `invalid_selector` error. Args: `args.extend(names)` instead of
+    `args.append(name)` when `names` is set.
+  - `k_delete`: add `names: list[str] | None = None` param. Validation: exactly one of `name`/`names`;
+    `names` + `label_selector` → `invalid_selector` error. Args: `args.extend(names)` instead of
+    `args.append(name)` when `names` is set.
+  - `k_patch`: change `name: str` → `name: str | None = None`, add `names: list[str] | None = None`.
+    Validation: exactly one of `name`/`names` (both required → error; neither → error). Args:
+    `args.extend(names)` instead of `args.append(name)` when `names` is set.
+  - `k_describe`: change `name: str` → `name: str | None = None`, add `names: list[str] | None = None`.
+    Validation: exactly one of `name`/`names` (both required → error; neither → error). Args:
+    `args.extend(names)` instead of `args.append(name)` when `names` is set.
+
+- **Server registration (`server.py`):** update the 4 `@app.tool` decorators to include the new
+  `names` parameter and update the description strings to clarify "use `name` for a single resource,
+  `names` for multiple resources."
+
+- **Bonus fix (`output/pruning.py`):** `prune()` currently doesn't recursively prune items in a
+  List object (pre-existing gap that also affects `label_selector`-based multi-resource gets).
+  If `data` has `items`, prune each item individually before returning the List.
+
+- **Tests:**
+  - Per-tool tests for multi-name success (`k_get` with multiple names returns List shape;
+    `k_delete`/`k_patch`/`k_describe` with multiple names invokes kubectl with all names).
+  - Per-tool tests for multi-name with partial missing resource (kubectl behavior: returns success
+    for existing, "not found" for missing).
+  - Per-tool tests for mutual exclusion validation: `name`+`names` → error; `names`+`all_namespaces`
+    (for `k_get`) → error; `names`+`label_selector` (for `k_delete`) → error.
+  - Bonus test for `prune(List)` recursive behavior.
+
+- **Docs (Definition of Done):** PRD.md §6's Tool Specification table updated for the 4 tools'
+  new `names` parameter and validation constraints; SPEC.md §6's implementation plan;
+  README.md's Available Tools table (if it documents parameters per-tool);
+  `KNOWN_ISSUES.md` FEATURE REQUESTS table with FR24 row.
+
+**Success Criteria (test coverage):** see PRD.md §15 FR24's test list above — mirrored exactly by
+the per-tool test cases, one-to-one.

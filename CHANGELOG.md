@@ -55,6 +55,17 @@ encoding (`_encode_k8s_secret_release()`). Updated decode failure tests to test
 
 419 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
 
+### FR24 — Multi-resource operations: add `names: list[str]` param to `k_get`/`k_delete`/`k_patch`/`k_describe`
+
+**Files:** `src/k8s_mcp/tools/get.py`, `src/k8s_mcp/tools/delete.py`, `src/k8s_mcp/tools/patch.py`, `src/k8s_mcp/tools/describe.py`, `src/k8s_mcp/server.py`, `src/k8s_mcp/output/pruning.py`, `PRD.md` §6, `CHANGELOG.md`
+
+**What changed:**
+1. **`k_get`/`k_delete`/`k_patch`/`k_describe`:** added `names: list[str] | None` parameter to support batch operations on multiple resource instances. For `k_get`/`k_delete`, `name` remains optional but `names` is an alternative; for `k_patch`/`k_describe`, `name` is changed to optional and `names` is the alternative. Validation ensures exactly one of `name`/`names` is set. `names` is incompatible with `all_namespaces` (for `k_get`) and `label_selector` (for `k_delete`).
+2. **`server.py`:** updated `@app.tool` registrations for the 4 tools to include the new `names` parameter and updated description strings.
+3. **`output/pruning.py`:** added recursive pruning for List objects — if `data` has `items`, each item is now individually pruned (fixes pre-existing gap where multi-resource List responses didn't have individual items pruned).
+
+419 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
+
 ### FR22 — Emit multiline tool output as a JSON array of lines instead of an escaped string
 
 **Files:** `resolution/grep_filter.py`, `tools/get.py`, `tools/describe.py`, `output/bounding.py`, `tools/logs.py`, `tests/unit/test_grep_filter.py`, `tests/unit/test_bounding.py`, `tests/unit/test_tools_get.py`, `tests/unit/test_tools_describe.py`, `tests/unit/test_tools_logs.py`

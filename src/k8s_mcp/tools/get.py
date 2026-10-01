@@ -1,9 +1,9 @@
 """k_get tool (PRD §6).
 
-GET a Kubernetes resource by type and name.
+GET a Kubernetes resource by type and name (or names).
 
 Required: context, resource
-Optional: name, namespace, all_namespaces, label_selector, field_selector, output
+Optional: name, names, namespace, all_namespaces, label_selector, field_selector, output
 
 Default: output=name (names only). Full JSON on request.
 All JSON responses are field-pruned per R9.
@@ -28,6 +28,7 @@ def handle_get(
     resource: str,
     *,
     name: str | None = None,
+    names: list[str] | None = None,
     namespace: str | None = None,
     all_namespaces: bool = False,
     label_selector: str | None = None,
@@ -104,6 +105,18 @@ def handle_get(
             )
         parsed_selector = sel_result  # type: ignore[assignment]
 
+    # Fail-fast: exactly one of name or names must be set
+    if name is not None and names is not None:
+        return envelope(
+            invalid_selector(context, name, detail="cannot specify both name and names parameters"),
+            context, "k_get", success=False,
+        )
+    if names is not None and all_namespaces:
+        return envelope(
+            invalid_selector(context, str(names), detail="cannot combine names parameter with all_namespaces"),
+            context, "k_get", success=False,
+        )
+
     # Resolve resource → GVK
     res = resolve(context, resource, discovery_cache=discovery_cache)
     if isinstance(res, dict):
@@ -125,6 +138,8 @@ def handle_get(
     args = ["get", resource_meta.fully_qualified_name]
     if name and not all_namespaces:
         args.append(name)
+    elif names and not all_namespaces:
+        args.extend(names)
     if namespace and not all_namespaces:
         args.extend(["-n", namespace])
     if all_namespaces:

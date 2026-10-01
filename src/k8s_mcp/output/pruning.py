@@ -81,7 +81,24 @@ def prune(data: Any, *, kind: str | None = None, keep_status: bool = False) -> A
             # No kind info — default to stripping status
             result.pop("status")
 
+    # Recursive pruning for List objects
+    is_list = "kind" in result and isinstance(result.get("kind"), str) and result["kind"].endswith("List")
+    if is_list and "items" in result:
+        items = result.get("items", [])
+        if isinstance(items, list):
+            list_kind = _extract_list_item_kind(result.get("kind"))
+            result["items"] = [prune(item, kind=list_kind, keep_status=keep_status) for item in items]
+
     return result
+
+
+def _extract_list_item_kind(list_kind: str | None) -> str | None:
+    """Extract the item kind from a List kind (e.g., 'PodList' -> 'Pod')."""
+    if not list_kind:
+        return None
+    if list_kind.endswith("List"):
+        return list_kind[:-4]
+    return list_kind
 
 
 def _deep_copy_dict(d: dict) -> dict:

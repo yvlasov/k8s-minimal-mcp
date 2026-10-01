@@ -56,6 +56,7 @@ implemented" label written before it was actually true). A Status line may not c
 | FR21 | Distinguishable error codes: timeout/connectivity, authentication vs. authorization, kubectl-level argument failures | Done — see CHANGELOG.md | PRD §15 FR21, SPEC §8 FR21 |
 | FR22 | Emit multiline tool output (`data.output`) as a JSON array of lines instead of an escaped string — the escaped form defeats grep/line-addressable reads on spilled-over tool-output files | Done — see CHANGELOG.md | PRD §15 FR22, SPEC §8 FR22 |
 | FR23 | Translate discovery's raw Kubernetes API verbs into this project's MCP verb vocabulary (`apply` is structurally unavailable on every CRD today, not just daemonsets); add `daemonsets` to the core table | Done — see CHANGELOG.md (commit `73bef0d`) | PRD §15 FR23, SPEC §8 FR23 |
+| FR24 | Multi-resource operations: add `names: list[str]` param to `k_get`/`k_delete`/`k_patch`/`k_describe` to support batch operations on multiple resource instances at once | Proposed | PRD §15 FR24, SPEC §8 FR24 |
 
 **FR23 — broadened 2026-09-28 from its original narrow framing, shipped same day.** Originally
 submitted as "add `daemonsets` to the core table" (valid — `k_apply` on a DaemonSet manifest
@@ -84,6 +85,17 @@ absence wasn't caught — the count increase looked like coverage for the whole 
 (`test_tools_apply.py` or `test_core_table.py`) asserting `daemonsets` resolves without touching
 the discovery cache/mock kubectl call, matching the existing `deployments`/`statefulsets`
 assertion pattern, before considering this FR's Definition-of-Done item 1 fully satisfied.
+
+**FR24 — multi-resource operations proposal, 2026-10-01.** Current kubectl-equivalent tools take a
+single `name` parameter (`k_get name=...`, `k_delete name=...`, `k_patch name=...`,
+`k_describe name=...`). `kubectl` itself supports multiple names in a single invocation
+(`kubectl get pods pod1 pod2 pod3`, `kubectl delete pods pod1 pod2 pod3`, etc.), but the MCP
+tools do not expose this pattern. Proposed fix: add a `names: list[str] | None` parameter to the
+4 tools above. Validation constraint: exactly one of `name` or `names` must be set; `names` is
+incompatible with `all_namespaces` (for `k_get`) and `label_selector` (for `k_delete`).
+Implementation: the kubectl args list is extended with all names from the list instead of a
+single name. PRD §15 FR24 / SPEC §8 FR24 contains the full design rationale and implementation
+plan.
 
 ---
 

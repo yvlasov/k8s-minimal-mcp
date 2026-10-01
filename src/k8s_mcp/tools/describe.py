@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..errors import invalid_selector
 from ..kubectl.runner import run_kubectl_checked
 from ..output import envelope
 from ..resolution import DiscoveryCache, resolve, validate
@@ -18,8 +19,9 @@ from ..resolution.grep_filter import compile_grep_pattern, filter_lines
 def handle_describe(
     context: str,
     resource: str,
-    name: str,
     *,
+    name: str | None = None,
+    names: list[str] | None = None,
     namespace: str | None = None,
     grep: str | None = None,
     grep_ignore_case: bool = False,
@@ -51,8 +53,24 @@ def handle_describe(
         validation["context"] = context
         return envelope(validation, context, "k_describe", success=False)
 
+    # Fail-fast: exactly one of name or names must be set
+    if name is None and names is None:
+        return envelope(
+            invalid_selector(context, resource, detail="must specify either name or names parameter"),
+            context, "k_describe", success=False,
+        )
+    if name is not None and names is not None:
+        return envelope(
+            invalid_selector(context, name, detail="cannot specify both name and names parameters"),
+            context, "k_describe", success=False,
+        )
+
     # Build kubectl args
-    args = ["describe", resource_meta.fully_qualified_name, name]
+    args = ["describe", resource_meta.fully_qualified_name]
+    if name:
+        args.append(name)
+    elif names:
+        args.extend(names)
     if namespace:
         args.extend(["-n", namespace])
 
