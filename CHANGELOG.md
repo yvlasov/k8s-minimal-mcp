@@ -66,6 +66,21 @@ encoding (`_encode_k8s_secret_release()`). Updated decode failure tests to test
 
 419 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
 
+### FR25 — Add RBAC and common built-in resources to the core table
+
+**Files:** `src/k8s_mcp/data/core_resources.toml`, `KNOWN_ISSUES.md`, `SPEC.md`, `CHANGELOG.md`
+
+**What changed:**
+1. **`core_resources.toml`:** Added 13 new built-in resource blocks to the core table:
+   - RBAC: `serviceaccounts` (sa), `roles`, `clusterroles` (cr), `rolebindings`, `clusterrolebindings` (crb)
+   - Scheduling & Resource Management: `priorityclasses` (pc), `poddisruptionbudgets` (pdb), `limitranges` (limitrange), `resourcequotas` (quota)
+   - Autoscaling: `horizontalpodautoscalers` (hpa)
+   - Admission Controllers: `validatingwebhookconfigurations` (validatingwebhookcfg), `mutatingwebhookconfigurations` (mutatingwebhookcfg)
+2. All added resources support verbs: `get`, `apply`, `patch`, `delete` (standard CRUD for built-in objects).
+3. **KNOWN_ISSUES.md / SPEC.md:** Updated FR25 entry to reflect the extended resource list.
+
+419 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
+
 ### FR22 — Emit multiline tool output as a JSON array of lines instead of an escaped string
 
 **Files:** `resolution/grep_filter.py`, `tools/get.py`, `tools/describe.py`, `output/bounding.py`, `tools/logs.py`, `tests/unit/test_grep_filter.py`, `tests/unit/test_bounding.py`, `tests/unit/test_tools_get.py`, `tests/unit/test_tools_describe.py`, `tests/unit/test_tools_logs.py`
