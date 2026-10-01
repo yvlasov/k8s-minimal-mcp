@@ -300,6 +300,36 @@ class TestHandleGetAnnotationSelector:
         assert result["data"]["_filtered"]["total"] == 1
         assert len(result["data"]["items"]) == 0
 
+    @patch("src.k8s_mcp.tools.get.resolve")
+    @patch("src.k8s_mcp.tools.get.run_kubectl_checked")
+    def test_annotation_selector_with_dots_in_key(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {'stdout': '{"items": [{"metadata": {"name": "nginx-pod", "annotations": {"prometheus.io/scrape": "true", "prometheus.io/port": "15020"}}}, {"metadata": {"name": "redis-pod", "annotations": {"app": "redis"}}}]}'}
+
+        result = handle_get("test-context", "pods", namespace="default",
+                            annotation_selector="prometheus.io/scrape=true")
+
+        assert result["success"] is True
+        assert result["data"]["_filtered"]["matched"] == 1
+        assert result["data"]["_filtered"]["total"] == 2
+        assert len(result["data"]["items"]) == 1
+        assert result["data"]["items"][0]["name"] == "nginx-pod"
+
+    @patch("src.k8s_mcp.tools.get.resolve")
+    @patch("src.k8s_mcp.tools.get.run_kubectl_checked")
+    def test_annotation_selector_with_dots_in_key_existence(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {'stdout': '{"items": [{"metadata": {"name": "nginx-pod", "annotations": {"prometheus.io/scrape": "true", "sidecar.istio.io/status": "exists"}}}, {"metadata": {"name": "redis-pod", "annotations": {"app": "redis"}}}]}'}
+
+        result = handle_get("test-context", "pods", namespace="default",
+                            annotation_selector="sidecar.istio.io/status")
+
+        assert result["success"] is True
+        assert result["data"]["_filtered"]["matched"] == 1
+        assert result["data"]["_filtered"]["total"] == 2
+        assert len(result["data"]["items"]) == 1
+        assert result["data"]["items"][0]["name"] == "nginx-pod"
+
 
 class TestHandleGetWide:
     @patch("src.k8s_mcp.tools.get.resolve")
