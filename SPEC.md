@@ -909,3 +909,26 @@ the test cases above, one-to-one.
 
 **Success Criteria (test coverage):** see PRD.md §15 FR24's test list above — mirrored exactly by
 the per-tool test cases, one-to-one.
+
+### FR25. Add RBAC resources to the core table
+
+**Status: Proposed, not yet implemented.**
+
+- **Motivation:** The core resources table (`src/k8s_mcp/data/core_resources.toml`) contains 18
+  resources but is missing Kubernetes RBAC (Role-Based Access Control) resources:
+  `serviceaccounts`, `roles`, `clusterroles`, `rolebindings`, `clusterrolebindings`. Without these
+  in the core table, RBAC resources fall through to per-context `kubectl api-resources` discovery,
+  which is unnecessary for these built-in, stable resource types.
+
+- **Resources to add to `core_resources.toml`:**
+  - `serviceaccounts` (short: `sa`), kind `ServiceAccount`, group `""`, version `v1`, namespaced: true
+  - `roles`, kind `Role`, group `rbac.authorization.k8s.io`, version `v1`, namespaced: true
+  - `clusterroles` (short: `cr`), kind `ClusterRole`, group `rbac.authorization.k8s.io`, version `v1`, namespaced: false
+  - `rolebindings`, kind `RoleBinding`, group `rbac.authorization.k8s.io`, version `v1`, namespaced: true
+  - `clusterrolebindings` (short: `crb`), kind `ClusterRoleBinding`, group `rbac.authorization.k8s.io`, version `v1`, namespaced: false
+
+- **Verbs for RBAC resources:** `get`, `apply`, `patch`, `delete` (standard CRUD for RBAC objects).
+
+- **Docs (Definition of Done):** PRD.md §6's Tool Specification table and §12's status count
+  updated if RBAC resources affect tool availability; `KNOWN_ISSUES.md` FEATURE REQUESTS table
+  with FR25 row; `CHANGELOG.md` with FR25 entry.

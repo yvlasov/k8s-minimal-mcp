@@ -57,6 +57,7 @@ implemented" label written before it was actually true). A Status line may not c
 | FR22 | Emit multiline tool output (`data.output`) as a JSON array of lines instead of an escaped string — the escaped form defeats grep/line-addressable reads on spilled-over tool-output files | Done — see CHANGELOG.md | PRD §15 FR22, SPEC §8 FR22 |
 | FR23 | Translate discovery's raw Kubernetes API verbs into this project's MCP verb vocabulary (`apply` is structurally unavailable on every CRD today, not just daemonsets); add `daemonsets` to the core table | Done — see CHANGELOG.md (commit `73bef0d`) | PRD §15 FR23, SPEC §8 FR23 |
 | FR24 | Multi-resource operations: add `names: list[str]` param to `k_get`/`k_delete`/`k_patch`/`k_describe` to support batch operations on multiple resource instances at once | Proposed | PRD §15 FR24, SPEC §8 FR24 |
+| FR25 | Add RBAC resources (`serviceaccounts`, `roles`, `clusterroles`, `rolebindings`, `clusterrolebindings`) to the core table | Proposed | PRD §15 FR25, SPEC §8 FR25 |
 
 **FR23 — broadened 2026-09-28 from its original narrow framing, shipped same day.** Originally
 submitted as "add `daemonsets` to the core table" (valid — `k_apply` on a DaemonSet manifest

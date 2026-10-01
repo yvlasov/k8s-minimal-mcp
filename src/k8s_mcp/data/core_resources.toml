@@ -172,3 +172,48 @@ group = ""
 version = "v1"
 namespaced = true
 verbs = ["get"]
+
+[[resource]]
+canonical = "serviceaccounts"
+shortnames = ["sa"]
+kind = "ServiceAccount"
+group = ""
+version = "v1"
+namespaced = true
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "roles"
+shortnames = []
+kind = "Role"
+group = "rbac.authorization.k8s.io"
+version = "v1"
+namespaced = true
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "clusterroles"
+shortnames = ["cr"]
+kind = "ClusterRole"
+group = "rbac.authorization.k8s.io"
+version = "v1"
+namespaced = false
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "rolebindings"
+shortnames = []
+kind = "RoleBinding"
+group = "rbac.authorization.k8s.io"
+version = "v1"
+namespaced = true
+verbs = ["get", "apply", "patch", "delete"]
+
+[[resource]]
+canonical = "clusterrolebindings"
+shortnames = ["crb"]
+kind = "ClusterRoleBinding"
+group = "rbac.authorization.k8s.io"
+version = "v1"
+namespaced = false
+verbs = ["get", "apply", "patch", "delete"]
