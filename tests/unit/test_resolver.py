@@ -6,14 +6,13 @@ from unittest.mock import patch
 
 import pytest
 
-from src.k8s_mcp.resolution import resolve, validate, ResourceMeta
-from src.k8s_mcp.resolution.discovery import DiscoveryCache
 from src.k8s_mcp.errors import (
-    ERROR_AMBIGUOUS_RESOURCE,
+    ERROR_NAMESPACE_INVALID,
     ERROR_UNKNOWN_RESOURCE,
     ERROR_VERB_UNSUPPORTED,
-    ERROR_NAMESPACE_INVALID,
 )
+from src.k8s_mcp.resolution import ResourceMeta, resolve, validate
+from src.k8s_mcp.resolution.discovery import DiscoveryCache
 
 
 @pytest.fixture

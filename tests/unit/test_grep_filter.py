@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import re
 
-import pytest
-
 from src.k8s_mcp.resolution.grep_filter import compile_grep_pattern, filter_lines
 
 

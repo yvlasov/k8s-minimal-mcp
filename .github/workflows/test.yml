@@ -25,8 +25,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
       - name: Run tests
-        run: PYTHONPATH=. uv run pytest -q
+        run: PYTHONPATH=. uv run pytest -q --cov=src --cov-report=term-missing --cov-fail-under=90
       - name: Run ruff
-        run: uv run ruff check src
-      - name: Run mypy
+        run: uv run ruff check src tests
+      - name: Run mypy on src
         run: uv run mypy src

@@ -1,6 +1,5 @@
 """Tests for kubectl stderr → error code mapping (PRD §7)."""
 
-import pytest
 
 from src.k8s_mcp.kubectl.errors import map_kubectl_error
 

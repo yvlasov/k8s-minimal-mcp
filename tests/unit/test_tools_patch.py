@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from src.k8s_mcp.tools.patch import handle_patch
 from src.k8s_mcp.resolution.models import ResourceMeta
+from src.k8s_mcp.tools.patch import handle_patch
 
 
 @pytest.fixture

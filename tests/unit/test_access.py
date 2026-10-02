@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from src.k8s_mcp.access import AccessLevel, allowed_verbs, tool_for_verb
 
 

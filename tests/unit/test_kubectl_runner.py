@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
-from src.k8s_mcp.kubectl.runner import KubectlResult, run_kubectl, run_kubectl_checked
+from src.k8s_mcp.kubectl.runner import run_kubectl, run_kubectl_checked
 
 
 class TestRunKubectl:
@@ -38,7 +36,7 @@ class TestRunKubectl:
         mock_proc.stderr = ""
         mock_proc.returncode = 0
 
-        result = run_kubectl("test-context", ["get", "pods"])
+        run_kubectl("test-context", ["get", "pods"])
 
         call_kwargs = mock_subprocess_run.call_args[1]
         env = call_kwargs["env"]
@@ -54,7 +52,7 @@ class TestRunKubectl:
         mock_proc.stderr = ""
         mock_proc.returncode = 0
 
-        result = run_kubectl("test-context", ["get", "pods"], timeout=60.0)
+        run_kubectl("test-context", ["get", "pods"], timeout=60.0)
 
         call_kwargs = mock_subprocess_run.call_args[1]
         assert call_kwargs["timeout"] == 60.0
@@ -67,7 +65,7 @@ class TestRunKubectl:
         mock_proc.stderr = ""
         mock_proc.returncode = 0
 
-        result = run_kubectl("test-context", ["apply", "-f", "-"], stdin="kind: Pod\n")
+        run_kubectl("test-context", ["apply", "-f", "-"], stdin="kind: Pod\n")
 
         call_kwargs = mock_subprocess_run.call_args[1]
         assert call_kwargs["input"] == "kind: Pod\n"

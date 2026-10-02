@@ -9,8 +9,6 @@ from __future__ import annotations
 import subprocess
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.k8s_mcp.kubectl.runner import run_kubectl, run_kubectl_checked
 
 
@@ -20,7 +18,7 @@ class TestRunKubectl:
         mock_run.return_value = MagicMock(
             stdout='{"items":[]}', stderr="", returncode=0
         )
-        result = run_kubectl("my-context", ["get", "pods"])
+        run_kubectl("my-context", ["get", "pods"])
         cmd = mock_run.call_args[0][0]
         assert cmd[0] == "kubectl"
         assert cmd[1] == "--context"

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from src.k8s_mcp.resolution.jsonpath_validation import check_nested_braces
 
 

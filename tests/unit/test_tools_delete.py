@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from src.k8s_mcp.tools.delete import handle_delete
 from src.k8s_mcp.resolution.models import ResourceMeta
+from src.k8s_mcp.tools.delete import handle_delete
 
 
 @pytest.fixture
@@ -68,7 +68,7 @@ class TestHandleDelete:
         mock_resolve.return_value = deploy_meta
         mock_run.return_value = {"stdout": '{"kind": "DeleteOptions", "metadata": {}}'}
 
-        result = handle_delete("test-context", "deployments", name="my-deploy", label_selector="app=nginx", namespace="default")
+        handle_delete("test-context", "deployments", name="my-deploy", label_selector="app=nginx", namespace="default")
 
         args = mock_run.call_args[0][1]
         assert args.count("-l") == 0  # name takes precedence, no -l flag

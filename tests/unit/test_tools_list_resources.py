@@ -6,12 +6,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.k8s_mcp.resolution.models import ResourceMeta
 from src.k8s_mcp.tools.list_resources import (
-    handle_list_resources,
     _filter_resources,
     _serialize_resource,
+    handle_list_resources,
 )
-from src.k8s_mcp.resolution.models import ResourceMeta
 
 
 @pytest.fixture

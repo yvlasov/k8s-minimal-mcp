@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.k8s_mcp.access import AccessLevel, allowed_verbs
+from src.k8s_mcp.access import AccessLevel
 from src.k8s_mcp.resolution.models import ResourceMeta
 from src.k8s_mcp.server import _dispatch
 

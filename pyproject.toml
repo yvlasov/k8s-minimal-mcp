@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "k8s-minimal-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Minimal verb-based Kubernetes MCP server"
 readme = "PRD.md"
 requires-python = ">=3.11"
@@ -38,6 +38,11 @@ disallow_untyped_defs = true
 warn_return_any = true
 disable_error_code = []
 
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+warn_return_any = false
+
 [tool.ruff]
 line-length = 120
 
@@ -51,5 +56,6 @@ indent-style = "space"
 
 [dependency-groups]
 dev = [
+    "pytest-cov>=6.2.1",
     "types-pyyaml>=6.0.12.20260906",
 ]

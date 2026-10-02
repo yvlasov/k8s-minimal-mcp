@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
-from src.k8s_mcp.output.bounding import bound_get_names, bound_logs, _extract_identity
+from src.k8s_mcp.output.bounding import _extract_identity, bound_get_names, bound_logs
 
 
 class TestBoundGetNames:

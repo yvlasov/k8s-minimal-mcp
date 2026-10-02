@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from src.k8s_mcp.tools.exec_ import handle_exec
 from src.k8s_mcp.resolution.models import ResourceMeta
+from src.k8s_mcp.tools.exec_ import handle_exec
 
 
 @pytest.fixture

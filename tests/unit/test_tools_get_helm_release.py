@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
-from src.k8s_mcp.tools.get_helm_release import handle_get_helm_release
 from src.k8s_mcp.resolution.models import ResourceMeta
+from src.k8s_mcp.tools.get_helm_release import handle_get_helm_release
 
 
 def _encode_release(data: dict) -> str:

@@ -2,27 +2,25 @@
 
 from __future__ import annotations
 
-import pytest
-
 from src.k8s_mcp.errors import (
-    ambiguous_resource,
-    unknown_resource,
-    verb_unsupported,
-    namespace_invalid,
-    unknown_context,
-    access_denied,
-    kubectl_failure,
-    exec_failed,
-    object_not_found,
+    ERROR_ACCESS_DENIED,
     ERROR_AMBIGUOUS_RESOURCE,
+    ERROR_EXEC_FAILED,
+    ERROR_KUBECTL_FAILURE,
+    ERROR_NAMESPACE_INVALID,
+    ERROR_OBJECT_NOT_FOUND,
+    ERROR_UNKNOWN_CONTEXT,
     ERROR_UNKNOWN_RESOURCE,
     ERROR_VERB_UNSUPPORTED,
-    ERROR_NAMESPACE_INVALID,
-    ERROR_UNKNOWN_CONTEXT,
-    ERROR_ACCESS_DENIED,
-    ERROR_KUBECTL_FAILURE,
-    ERROR_EXEC_FAILED,
-    ERROR_OBJECT_NOT_FOUND,
+    access_denied,
+    ambiguous_resource,
+    exec_failed,
+    kubectl_failure,
+    namespace_invalid,
+    object_not_found,
+    unknown_context,
+    unknown_resource,
+    verb_unsupported,
 )
 
 

@@ -1,6 +1,5 @@
 """Tests for discovery cache parser (Issue 9)."""
 
-import pytest
 
 from src.k8s_mcp.resolution.discovery import _parse_api_resources
 from src.k8s_mcp.resolution.models import ResourceMeta
@@ -176,8 +175,8 @@ mycrd2 mycrd2 mygroup/v1 true MyCRD2 get,watch,deletecollection,unknownverb"""
 
 class TestDiscoveryCacheRefresh:
     def test_refresh_returns_error_on_empty_output(self, mocker):
-        from src.k8s_mcp.resolution.discovery import DiscoveryCache
         from src.k8s_mcp.errors import ERROR_DISCOVERY_FAILURE
+        from src.k8s_mcp.resolution.discovery import DiscoveryCache
         cache = DiscoveryCache()
         mocker.patch("src.k8s_mcp.resolution.discovery.run_kubectl", return_value={"stdout": "", "error": None})
         result = cache.refresh("test-context")

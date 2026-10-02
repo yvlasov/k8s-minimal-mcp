@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from src.k8s_mcp.resolution.core_table import load_core_table
 
 

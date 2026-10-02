@@ -104,10 +104,7 @@ plan.
 
 | # | Title | File(s) |
 |---|---|---|
-| 55 | `bound_logs()`'s docstring still describes its `logs` return value as a string — stale since FR22 changed it to `list[str]` (renumbered from 53; see Issue 54 for de-conflict) | `output/bounding.py` |
 | 54 | Test-suite lint debt (35 ruff issues) + no coverage gate + version drift + Issue 53 number reused (code-quality audit 2026-10-02) | `tests/unit/*`, `.github/workflows/test.yml`, `pyproject.toml` |
-
-**Issue 55 detail:** Cosmetic, found during FR22 Done-status verification (2026-09-28). Note: this issue was originally numbered 53, but the number 53 was reused for the `annotation_selector` dots fix (see FIXED table and commit `37d7dee`). Renumbered to 55 to de-conflict with Issue 54's audit. `output/bounding.py`'s `bound_logs()` docstring (~line 52) reads "logs: the (possibly truncated) log string" — unchanged from before FR22 shipped, which changed the actual return type of the `logs` key from a joined `str` to `list[str]`. No functional impact; a reader trusting the docstring over the code gets the wrong shape. Fix: update the docstring's `logs` description to say "list of (possibly truncated) log lines."
 
 **Issue 54 detail:** Code-quality audit of `main` @ `3d98645` (2026-10-02). Source is clean —
 `mypy src` (strict) and `ruff check src` both pass — but the same standards are not applied to the
@@ -215,6 +212,8 @@ in `CHANGELOG.md`.
 
 | # | Title | File(s) |
 |---|---|---|
+| 55 | `bound_logs()`'s docstring still describes its `logs` return value as a string — stale since FR22 changed it to `list[str]` (renumbered from 53) | `output/bounding.py` |
+| 54 | Code-quality audit: test-suite lint debt + no coverage gate + version drift + Issue 53 number de-conflicted (2026-10-02) | `tests/unit/*`, `.github/workflows/test.yml`, `pyproject.toml`, `KNOWN_ISSUES.md` |
 | 53 | `annotation_selector` fails to match annotations with dots in key names (e.g., `prometheus.io/scrape=true`) | `resolution/models.py`, `tools/get.py` |
 | 52 | `k_get_helm_release` fails to decode any real Helm v3 release — missing a second base64 layer before gzip | `tools/get_helm_release.py`, `test_tools_get_helm_release.py` |
 | 51 | FR20's `jsonpath_template`→`jsonpath` rename missed `invalid_jsonpath_template()`'s response field and docstring | `errors/core.py`, `test_tools_get.py`, `test_tools_apply.py`, `test_tools_patch.py` |

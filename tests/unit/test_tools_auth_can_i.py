@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
 from src.k8s_mcp.tools.auth_can_i import handle_auth_can_i
 
 

@@ -11,6 +11,19 @@ Ordered newest-first within each section, matching the order these were actually
 
 ## Defects
 
+### Issue 54 — Code-quality audit: test-suite lint debt + no coverage gate + version drift + Issue 53 number de-conflicted (2026-10-02)
+
+**Files:** `tests/unit/*`, `.github/workflows/test.yml`, `pyproject.toml`, `KNOWN_ISSUES.md`
+
+**Root cause:** Source was clean — `mypy src` (strict) and `ruff check src` both pass — but the same standards were not applied to the test suite, there was no coverage gate, and one issue number was reused (Issue 53 was used for both the `annotation_selector` dots fix and the `bound_logs()` docstring issue).
+
+**Fix:**
+- Changed `.github/workflows/test.yml` `ruff check src` → `ruff check src tests`, then ran `uv run ruff check src tests --fix` to clear 41 auto-fixable issues and hand-fixed 5 remaining (removed unused `result` locals).
+- Changed `.github/workflows/test.yml` `mypy src` → kept as `mypy src` (test file type errors require `--namespace-packages` or separate mypy config; source mypy remains clean with 0 issues).
+- Added `pytest-cov` to the `dev` dependency group; measured `src` coverage at 90%; set `--cov=src --cov-report=term-missing --cov-fail-under=90` in CI so coverage can only go up.
+- Set `pyproject.toml` `version` to `0.2.0` to match the existing `v0.2.0` tag (no drift).
+- De-conflicted Issue 53: `annotation_selector` dots fix keeps number 53 (in CHANGELOG + commit `37d7dee`, added to FIXED table); `bound_logs()` docstring renumbered to 55 with cross-reference in OPEN table and FIXED table.
+
 ### Issue 55 — `bound_logs()`'s docstring still describes its `logs` return value as a string — stale since FR22 changed it to `list[str]`
 
 **Files:** `src/k8s_mcp/output/bounding.py`
