@@ -215,7 +215,13 @@ Loaded once at startup into `list[ResourceMeta]`. Discovery-cache entries (`reso
 - **Logging of mutating calls** (`apply`, `patch`, `delete`, `exec`) goes through a single logging call site in `server.py` — matching PRD §13's open "audit/logging sink" question; stub this now so it's one place to wire a real sink later, but don't over-build it until that question resolves.
 - **Doc updates are part of "done," not a follow-up.** SPEC §2's Module Layout tree, PRD §6's Tool Specification table, and PRD §12's tool-count paragraph must be updated in the same change that ships a new tool/param — see `KNOWN_ISSUES.md`'s Definition of Done checklist (added after this drifted nine times — `CHANGELOG.md`'s "Documentation Process" section has the history).
 - **Do not widen `disable_error_code` in `[tool.mypy]` to suppress a new failure.** Fix the annotation or narrow the type instead; a suppressed code category defeats the tool for every future file, not just the one that triggered it (see `KNOWN_ISSUES.md` Issue 49).
-
+- **Error message reference** - use following example as a best practice of how error message should be.
+```
+Format: JSON with schema: {context: string, tool: string, success: boolean, data: {apiVersion: string, items: [{...}], kind: string, metadata: {...}}}
+- For targeted queries (find a value, filter by field): use jq on the file directly.
+- For analysis or summarization that requires reading the full content: first probe the structure (e.g., jq 'type, length, keys?' /Users/yurivlasov/.claude/projects/-skipped/13d71b47-c509-4047-a3d1-720d560cb57c/tool-results/mcp-k8s-k_get-1790971882635.txt), then extract slices with jq or python — Read's line-based offset/limit will not chunk this file.
+- If the Agent tool is available, do this inside a subagent so the full output stays out of your main context. Give it the instruction above verbatim, and be explicit about what it must return — e.g. "/Users/yurivlasov/.claude/projects/-skipped/13d71b47-c509-4047-a3d1-720d560cb57c/tool-results/mcp-k8s-k_get-1790971882635.txt is JSON with schema: {context: string, tool: string, success: boolean, data: {apiVersion: string, items: [{...}], kind: string, metadata: {...}}}; probe the structure with jq (type/length/keys), then extract and read the content in full with jq or python, then summarize and quote any key findings verbatim." A vague "summarize this" may lose detail.
+```
 ---
 
 ## 7. What This Spec Deliberately Leaves Open
