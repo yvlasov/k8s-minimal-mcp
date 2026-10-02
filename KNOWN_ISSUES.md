@@ -105,6 +105,7 @@ plan.
 | # | Title | File(s) |
 |---|---|---|
 | 53 | `bound_logs()`'s docstring still describes its `logs` return value as a string — stale since FR22 changed it to `list[str]` | `output/bounding.py` |
+| 54 | Test-suite lint debt (35 ruff issues) + no coverage gate + version drift + Issue 53 number reused (code-quality audit 2026-10-02) | `tests/unit/*`, `.github/workflows/test.yml`, `pyproject.toml` |
 
 **Issue 53 detail:** Cosmetic, found during FR22 Done-status verification (2026-09-28).
 `output/bounding.py`'s `bound_logs()` docstring (~line 52) reads "logs: the (possibly truncated)
@@ -112,6 +113,71 @@ log string" — unchanged from before FR22 shipped, which changed the actual ret
 `logs` key from a joined `str` to `list[str]`. No functional impact; a reader trusting the
 docstring over the code gets the wrong shape. Fix: update the docstring's `logs` description to
 say "list of (possibly truncated) log lines."
+
+**Issue 54 detail:** Code-quality audit of `main` @ `3d98645` (2026-10-02). Source is clean —
+`mypy src` (strict) and `ruff check src` both pass — but the same standards are not applied to the
+test suite, there is no coverage gate, and one issue number was reused.
+
+**Facts collected:**
+- `mypy src` (strict: `disallow_untyped_defs`, `warn_return_any`): 0 issues across 40 files.
+- `ruff check src`: 0 errors ("All checks passed").
+- `ruff check tests`: **35 issues, all in `tests/unit/`** — 16× F401 (unused import; 13 are
+  `import pytest` never used, 3 real: `KubectlResult`, `ERROR_AMBIGUOUS_RESOURCE`,
+  `allowed_verbs`), 14× I001 (unsorted import block), 5× F841 (unused local `result`). 30
+  auto-fixable via `ruff --fix`; 5 need manual/unsafe-fix.
+- `pytest tests` (`PYTHONPATH=.`): 427 passed, 9 skipped, 436 collected. The 9 skips are
+  **intentional** access-level gating in `test_server.py:232` (e.g. "exec not available at
+  readonly") — verified, not a gap.
+- Source: 3,794 lines; largest file `errors/core.py` (325 lines).
+- `.github/workflows/test.yml` runs `ruff check src` and `mypy src` — **both scoped to `src`
+  only**, so test-file lint/type violations are never caught by CI. This is the root cause of the
+  accumulated test lint debt.
+- `pyproject.toml`: no `pytest-cov` dependency, no coverage threshold; CI runs bare `pytest -q`
+  with no coverage step.
+- Version drift: `pyproject.toml` `version = "0.1.0"` but the latest published tag is `v0.2.0`
+  (release created 2026-10-02).
+- **Issue 53 number reused:** this file's OPEN table lists Issue 53 = `bound_logs()` docstring
+  (filed by `be68594`), but commit `37d7dee` + `CHANGELOG.md` ("Issue 53 — annotation_selector
+  fails to match annotations with dots in key names") both use "Issue 53" for a *different* fix.
+  Two distinct issues share one number; the `bound_logs()` docstring issue is still open but its
+  number is now ambiguous.
+
+**Concerns:**
+1. The test suite is not held to the same lint standard as `src` — running `ruff check` on the
+   whole tree shows 35 failures, eroding trust in the "clean" signal.
+2. No coverage metric means test count (436) is the only proxy; coverage regressions are invisible.
+3. Version/tag drift: the published `v0.2.0` tag and the package version disagree.
+4. Reused issue numbers make the tracker's history ambiguous (a reader can't tell which "Issue 53"
+   a CHANGELOG entry refers to).
+
+**Fix plan (decisions locked 2026-10-02):**
+- **Lint gate (primary):** change `.github/workflows/test.yml` `ruff check src` →
+  `ruff check src tests`, then run `uv run ruff check src tests --fix` to clear the 30
+  auto-fixable issues and hand-fix the 5 (remove unused `pytest`/`KubectlResult` imports; delete
+  or use the 5 unused `result` locals).
+- **mypy gate (src + tests):** change `.github/workflows/test.yml` `mypy src` → `mypy src
+  tests`, then fix all resulting type errors in the test files (likely untyped fixtures and mock
+  return values). Largest sub-item — schedule it after the lint fix lands.
+- **Coverage gate (ratchet at baseline):** add `pytest-cov` to the `dev` dependency group;
+  measure the current `src` coverage %; set `--cov=src --cov-report=term-missing
+  --cov-fail-under=<measured>` in CI so coverage can only go up; record the baseline % here.
+- **Version:** set `pyproject.toml` `version` to `0.2.0` to match the existing `v0.2.0` tag.
+- **Issue 53 de-conflict:** keep `annotation_selector` dots = 53 (already in CHANGELOG + commit
+  37d7dee); add it to the FIXED table; renumber the still-open `bound_logs()` docstring to 55
+  (54 = this audit) and add a cross-reference note in both the OPEN table and the renumbered
+  detail block.
+
+**Definition of done:**
+- [ ] `uv run ruff check src tests` → 0 errors (all 35 resolved).
+- [ ] `uv run mypy src tests` → 0 issues (all test-file type errors fixed).
+- [ ] CI `test.yml` runs `ruff check src tests` + a coverage step, green on `main`.
+- [ ] `pytest-cov` added; CI enforces `--cov-fail-under=<measured baseline>` (ratchet); baseline
+      % recorded here.
+- [ ] `pyproject.toml` `version` matches the latest tag (no drift).
+- [ ] Issue 53 de-conflicted: `annotation_selector` keeps 53 (+ added to FIXED table);
+      `bound_logs()` docstring renumbered to 55 and cross-referenced.
+- [ ] `CHANGELOG.md` entry recording the audit + fixes (root cause/fix/test).
+- [ ] Move Issue 54 to the FIXED table with commit hash once all boxes above are checked.
 
 ---
 
