@@ -55,7 +55,7 @@ def bound_logs(stdout: str, *, tail: int | None = None, limit_bytes: int | None 
     detect and report that a byte truncation likely occurred, not to re-truncate.
 
     Returns a dict with:
-      - logs: the (possibly truncated) log string
+      - logs: list of (possibly truncated) log lines
       - _bound: metadata about the bound(s) applied
     """
     lines = stdout.splitlines()

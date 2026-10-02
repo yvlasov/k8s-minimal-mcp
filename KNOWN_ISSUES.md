@@ -104,15 +104,10 @@ plan.
 
 | # | Title | File(s) |
 |---|---|---|
-| 53 | `bound_logs()`'s docstring still describes its `logs` return value as a string — stale since FR22 changed it to `list[str]` | `output/bounding.py` |
+| 55 | `bound_logs()`'s docstring still describes its `logs` return value as a string — stale since FR22 changed it to `list[str]` (renumbered from 53; see Issue 54 for de-conflict) | `output/bounding.py` |
 | 54 | Test-suite lint debt (35 ruff issues) + no coverage gate + version drift + Issue 53 number reused (code-quality audit 2026-10-02) | `tests/unit/*`, `.github/workflows/test.yml`, `pyproject.toml` |
 
-**Issue 53 detail:** Cosmetic, found during FR22 Done-status verification (2026-09-28).
-`output/bounding.py`'s `bound_logs()` docstring (~line 52) reads "logs: the (possibly truncated)
-log string" — unchanged from before FR22 shipped, which changed the actual return type of the
-`logs` key from a joined `str` to `list[str]`. No functional impact; a reader trusting the
-docstring over the code gets the wrong shape. Fix: update the docstring's `logs` description to
-say "list of (possibly truncated) log lines."
+**Issue 55 detail:** Cosmetic, found during FR22 Done-status verification (2026-09-28). Note: this issue was originally numbered 53, but the number 53 was reused for the `annotation_selector` dots fix (see FIXED table and commit `37d7dee`). Renumbered to 55 to de-conflict with Issue 54's audit. `output/bounding.py`'s `bound_logs()` docstring (~line 52) reads "logs: the (possibly truncated) log string" — unchanged from before FR22 shipped, which changed the actual return type of the `logs` key from a joined `str` to `list[str]`. No functional impact; a reader trusting the docstring over the code gets the wrong shape. Fix: update the docstring's `logs` description to say "list of (possibly truncated) log lines."
 
 **Issue 54 detail:** Code-quality audit of `main` @ `3d98645` (2026-10-02). Source is clean —
 `mypy src` (strict) and `ruff check src` both pass — but the same standards are not applied to the
@@ -136,19 +131,15 @@ test suite, there is no coverage gate, and one issue number was reused.
   with no coverage step.
 - Version drift: `pyproject.toml` `version = "0.1.0"` but the latest published tag is `v0.2.0`
   (release created 2026-10-02).
-- **Issue 53 number reused:** this file's OPEN table lists Issue 53 = `bound_logs()` docstring
-  (filed by `be68594`), but commit `37d7dee` + `CHANGELOG.md` ("Issue 53 — annotation_selector
-  fails to match annotations with dots in key names") both use "Issue 53" for a *different* fix.
-  Two distinct issues share one number; the `bound_logs()` docstring issue is still open but its
-  number is now ambiguous.
+- **Issue 53 number de-conflicted:** the `bound_logs()` docstring issue was renumbered to 55;
+  the `annotation_selector` dots fix keeps number 53 (already in CHANGELOG + commit `37d7dee`,
+  added to FIXED table). See OPEN table Issue 55 and FIXED table Issue 53.
 
 **Concerns:**
 1. The test suite is not held to the same lint standard as `src` — running `ruff check` on the
    whole tree shows 35 failures, eroding trust in the "clean" signal.
 2. No coverage metric means test count (436) is the only proxy; coverage regressions are invisible.
 3. Version/tag drift: the published `v0.2.0` tag and the package version disagree.
-4. Reused issue numbers make the tracker's history ambiguous (a reader can't tell which "Issue 53"
-   a CHANGELOG entry refers to).
 
 **Fix plan (decisions locked 2026-10-02):**
 - **Lint gate (primary):** change `.github/workflows/test.yml` `ruff check src` →
@@ -162,10 +153,9 @@ test suite, there is no coverage gate, and one issue number was reused.
   measure the current `src` coverage %; set `--cov=src --cov-report=term-missing
   --cov-fail-under=<measured>` in CI so coverage can only go up; record the baseline % here.
 - **Version:** set `pyproject.toml` `version` to `0.2.0` to match the existing `v0.2.0` tag.
-- **Issue 53 de-conflict:** keep `annotation_selector` dots = 53 (already in CHANGELOG + commit
-  37d7dee); add it to the FIXED table; renumber the still-open `bound_logs()` docstring to 55
-  (54 = this audit) and add a cross-reference note in both the OPEN table and the renumbered
-  detail block.
+- **Issue 53 de-conflict:** DONE — `annotation_selector` dots keeps 53 (in CHANGELOG + commit
+  37d7dee, added to FIXED table); `bound_logs()` docstring renumbered to 55 with cross-reference
+  in OPEN table and detail block.
 
 **Definition of done:**
 - [ ] `uv run ruff check src tests` → 0 errors (all 35 resolved).
@@ -174,7 +164,7 @@ test suite, there is no coverage gate, and one issue number was reused.
 - [ ] `pytest-cov` added; CI enforces `--cov-fail-under=<measured baseline>` (ratchet); baseline
       % recorded here.
 - [ ] `pyproject.toml` `version` matches the latest tag (no drift).
-- [ ] Issue 53 de-conflicted: `annotation_selector` keeps 53 (+ added to FIXED table);
+- [ ] Issue 53 de-conflicted: DONE — `annotation_selector` keeps 53 (+ added to FIXED table);
       `bound_logs()` docstring renumbered to 55 and cross-referenced.
 - [ ] `CHANGELOG.md` entry recording the audit + fixes (root cause/fix/test).
 - [ ] Move Issue 54 to the FIXED table with commit hash once all boxes above are checked.
@@ -225,6 +215,7 @@ in `CHANGELOG.md`.
 
 | # | Title | File(s) |
 |---|---|---|
+| 53 | `annotation_selector` fails to match annotations with dots in key names (e.g., `prometheus.io/scrape=true`) | `resolution/models.py`, `tools/get.py` |
 | 52 | `k_get_helm_release` fails to decode any real Helm v3 release — missing a second base64 layer before gzip | `tools/get_helm_release.py`, `test_tools_get_helm_release.py` |
 | 51 | FR20's `jsonpath_template`→`jsonpath` rename missed `invalid_jsonpath_template()`'s response field and docstring | `errors/core.py`, `test_tools_get.py`, `test_tools_apply.py`, `test_tools_patch.py` |
 | 49 | FR16's `mypy` config disabled its own error codes, silently defeating `disallow_untyped_defs`/`warn_return_any` | `pyproject.toml`, `resolution/resolver.py`, `tools/*.py`, `resolution/core_table.py`, `tools/list_resources.py`, `server.py` |

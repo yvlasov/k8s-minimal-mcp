@@ -11,6 +11,16 @@ Ordered newest-first within each section, matching the order these were actually
 
 ## Defects
 
+### Issue 55 — `bound_logs()`'s docstring still describes its `logs` return value as a string — stale since FR22 changed it to `list[str]`
+
+**Files:** `src/k8s_mcp/output/bounding.py`
+
+**Root cause:** Cosmetic, found during FR22 Done-status verification (2026-09-28). `output/bounding.py`'s `bound_logs()` docstring read "logs: the (possibly truncated) log string" — unchanged from before FR22 shipped, which changed the actual return type of the `logs` key from a joined `str` to `list[str]`. No functional impact; a reader trusting the docstring over the code gets the wrong shape.
+
+**Fix:** Updated the docstring's `logs` description to say "list of (possibly truncated) log lines."
+
+Note: This issue was originally numbered 53, but the number 53 was reused for the `annotation_selector` dots fix (see Issue 53 below and commit `37d7dee`). Renumbered to 55 to de-conflict with the Issue 54 code-quality audit.
+
 ### Issue 52 — `k_get_helm_release` fails to decode any real Helm v3 release — missing a second base64 layer before gzip
 
 **Files:** `src/k8s_mcp/tools/get_helm_release.py`, `tests/unit/test_tools_get_helm_release.py`
