@@ -19,12 +19,14 @@ class TestHandleListContexts:
         assert result["data"]["count"] == 3
 
     @patch("src.k8s_mcp.tools.contexts.list_kubeconfig_contexts")
-    def test_list_contexts_calls_with_no_args(self, mock_list, tmp_path):
+    def test_list_contexts_forwards_context_to_kubeconfig_read(self, mock_list, tmp_path):
+        # Issue 57: the echoed context is threaded to the kubeconfig read so
+        # runner error envelopes carry it (§7 shape).
         mock_list.return_value = ["context1"]
 
         handle_list_contexts("test-context")
 
-        mock_list.assert_called_once_with()
+        mock_list.assert_called_once_with("test-context")
 
     @patch("src.k8s_mcp.tools.contexts.list_kubeconfig_contexts")
     def test_list_contexts_error_surfaced(self, mock_list, tmp_path):

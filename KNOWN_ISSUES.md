@@ -43,7 +43,7 @@ implemented" label written before it was actually true). A Status line may not c
 | FR8 | Fail-fast nested-brace `jsonpath_template` validation | Done | PRD §15 FR8, SPEC §8 FR8 |
 | FR9 | `k_get_secret_to_file` | Done | PRD §15 FR9, SPEC §8 FR9 |
 | FR10 | `src_file` for `k_apply` | Done | PRD §15 FR10, SPEC §8 FR10 |
-| FR11 | Built-in MCP prompts (ArgoCD/Cilium status) | Done — see Issue 43 (open correction) | PRD §15 FR11, SPEC §8 FR11 |
+| FR11 | Built-in MCP prompts (ArgoCD/Cilium status) | Done — see Issue 43 (resolved) | PRD §15 FR11, SPEC §8 FR11 |
 | FR12 | `k_get_helm_release` | Done — see Issue 39 (resolved) | PRD §15 FR12, SPEC §8 FR12 |
 | FR13 | `k_auth_can_i` | Done — see Issue 40 (resolved) | PRD §15 FR13, SPEC §8 FR13 |
 | FR14 | `grep` — text-filtering for `k_logs`/`k_describe`/`k_get output=wide` | Done — see CHANGELOG.md | PRD §15 FR14, SPEC §8 FR14 |
@@ -56,7 +56,7 @@ implemented" label written before it was actually true). A Status line may not c
 | FR21 | Distinguishable error codes: timeout/connectivity, authentication vs. authorization, kubectl-level argument failures | Done — see CHANGELOG.md | PRD §15 FR21, SPEC §8 FR21 |
 | FR22 | Emit multiline tool output (`data.output`) as a JSON array of lines instead of an escaped string — the escaped form defeats grep/line-addressable reads on spilled-over tool-output files | Done — see CHANGELOG.md | PRD §15 FR22, SPEC §8 FR22 |
 | FR23 | Translate discovery's raw Kubernetes API verbs into this project's MCP verb vocabulary (`apply` is structurally unavailable on every CRD today, not just daemonsets); add `daemonsets` to the core table | Done — see CHANGELOG.md (commit `73bef0d`) | PRD §15 FR23, SPEC §8 FR23 |
-| FR24 | Multi-resource operations: add `names: list[str]` param to `k_get`/`k_delete`/`k_patch`/`k_describe` to support batch operations on multiple resource instances at once | Proposed | PRD §15 FR24, SPEC §8 FR24 |
+| FR24 | Multi-resource operations: add `names: list[str]` param to `k_get`/`k_delete`/`k_patch`/`k_describe` to support batch operations on multiple resource instances at once | Done — shipped `fbf7782`; dispatch-path tests closed via Issue 56 (2026-10-04) | PRD §15 FR24, SPEC §8 FR24 |
 | FR25 | Add RBAC resources (`serviceaccounts`, `roles`, `clusterroles`, `rolebindings`, `clusterrolebindings`) and scheduling/resource management resources (`priorityclasses`, `poddisruptionbudgets`, `limitranges`, `resourcequotas`, `horizontalpodautoscalers`, `validatingwebhookconfigurations`, `mutatingwebhookconfigurations`) to the core table | Done — see CHANGELOG.md | PRD §15 FR25, SPEC §8 FR25 |
 
 **FR23 — broadened 2026-09-28 from its original narrow framing, shipped same day.** Originally
@@ -87,9 +87,13 @@ absence wasn't caught — the count increase looked like coverage for the whole 
 the discovery cache/mock kubectl call, matching the existing `deployments`/`statefulsets`
 assertion pattern, before considering this FR's Definition-of-Done item 1 fully satisfied.
 
-**FR24 — multi-resource operations proposal, 2026-10-01.** Current kubectl-equivalent tools take a
-single `name` parameter (`k_get name=...`, `k_delete name=...`, `k_patch name=...`,
-`k_describe name=...`). `kubectl` itself supports multiple names in a single invocation
+**FR24 — multi-resource operations proposal, 2026-10-01; shipped `fbf7782` the same day, tests
+closed via Issue 56 (2026-10-04).** Status was stale in this file and `SPEC.md` §8 for three days
+while `PRD.md`/`CHANGELOG.md` already said Done — the three-way inconsistency itself is item 1 of
+Issue 60. Original proposal text follows, kept for rationale:
+
+Current kubectl-equivalent tools take a single `name` parameter (`k_get name=...`, `k_delete name=...`,
+`k_patch name=...`, `k_describe name=...`). `kubectl` itself supports multiple names in a single invocation
 (`kubectl get pods pod1 pod2 pod3`, `kubectl delete pods pod1 pod2 pod3`, etc.), but the MCP
 tools do not expose this pattern. Proposed fix: add a `names: list[str] | None` parameter to the
 4 tools above. Validation constraint: exactly one of `name` or `names` must be set; `names` is
@@ -102,7 +106,27 @@ plan.
 
 ## OPEN (not yet fixed)
 
-(No open tasks — all issues from the code-quality audit have been resolved and moved to the FIXED table.)
+Issues 56-61 were fixed 2026-10-04 and moved to the FIXED table (full root cause/fix/tests/
+verification history in `CHANGELOG.md`). Issue 63 (`dry_run` enum, found while implementing
+Issue 59) was filed and fixed the same day per the user's decision and recorded directly in
+FIXED/CHANGELOG.
+
+| # | Title | File(s) |
+|---|---|---|
+| 62 | 22 functions exceed the 35-line guideline (`handle_get` 194, `handle_apply` 148, `register_tools` 146, `handle_patch` 142, `_parse_api_resources` 122); the `name`/`names` exactly-one-of chain is duplicated across 4 tools and the `dry_run` enum check now exists in 3 | `tools/*.py`, `server.py`, `resolution/discovery.py` |
+
+**Issue 62 detail:** Measured 2026-10-04 by AST pass over `src/` (line span per function): 22
+functions > 35 lines. Largest: `handle_get` (194), `handle_apply` (148), `register_tools` (146 —
+Issue 56's extraction moved `main()`'s registration body here; `main()` itself is now ~20 lines),
+`handle_patch` (142), `_parse_api_resources` (122). No class exceeds 300 lines. The dominant
+pattern is long fail-fast guard chains of identical
+`return envelope(errors.x(...), context, "k_<tool>", success=False)` blocks — the
+`name`/`names` exactly-one-of chain is verbatim-duplicated in all four FR24 tools, and the
+`_VALID_DRY_RUNS` check now exists three times (`apply.py`, `patch.py`, `delete.py` — local
+constants chosen deliberately per the Issue 59 pattern, with consolidation deferred here).
+Fix direction: shared validators + extract-then-compose; pure refactor, no behavior change.
+**Deferred per user decision 2026-10-04** — belongs in its own PIV cycle, not stacked onto
+behavior-fix sessions.
 
 ---
 
@@ -128,7 +152,7 @@ exact code shape before implementing.
       object-invalid checks before the `kubectl_failure` fallback)
 - [x] `test_runner.py` (3 assertions) and `test_kubectl_errors.py` (1 changed + 4 new cases)
       updated per SPEC.md §8 FR21
-- [x] PRD.md §7: add the 6 new error codes and backfill the pre-existing `kubectl_failure` gap
+- [x] PRD.md §7: add the 7 new error codes and backfill the pre-existing `kubectl_failure` gap
 
 **FR22** — `data.output`/`logs` as JSON array of lines (done, see CHANGELOG.md):
 - [x] `resolution/grep_filter.py`: `filter_lines()` takes/returns `list[str]` instead of a
@@ -141,6 +165,73 @@ exact code shape before implementing.
 - [x] Update `test_grep_filter.py`, `test_bounding.py`, `test_tools_get.py`,
       `test_tools_describe.py`, `test_tools_logs.py` — all currently assert string output
 
+**Issue 56** — restore the coverage gate (fixed 2026-10-04, see CHANGELOG.md):
+- [x] Extract `register_tools(app, access_level, discovery_cache, allow_namespaces)` from
+      `main()`; `main()` becomes parse → logging → build app → `register_tools(...)` → `app.run()`
+- [x] Fake-app registration test: collect `@app.tool(name=...)` per level, assert 6/9/12 and the
+      exact name sets (readonly/readwrite/admin)
+- [x] Wrapper drive-through test: call each registered wrapper function from the fake app with
+      `run_kubectl_checked` mocked, assert it reaches `_dispatch()` (closes DoD item 1's "the
+      registered `@app.tool` wrapper" wording structurally for every tool)
+- [x] FR24 tests — validation branches ×4 tools: neither `name` nor `names` → error; both set →
+      error; exactly-one happy path
+- [x] FR24 tests — args construction: `names=["a","b"]` → both appear in kubectl args position,
+      for `get`/`delete`/`patch`/`describe`
+- [x] FR24 tests — incompatibility: `names` + `all_namespaces` (get), `names` + `label_selector`
+      (delete) → fail-fast before subprocess
+- [x] FR24 tests — `prune()` recursion on List items (multi-resource responses prune each item)
+- [x] Re-run `pytest -q --cov=src --cov-report=term-missing --cov-fail-under=90`; record actual
+      count + coverage in the CHANGELOG entry (DoD item 6); do not lower the threshold
+
+**Issue 57** — kubeconfig through the runner seam (fixed 2026-10-04, see CHANGELOG.md):
+- [x] Read `kubectl/runner.py` arg composition; decide how `config get-contexts` (a local read)
+      threads through it without a spurious `--context` (or accept the nominal-context convention)
+- [x] Replace `subprocess.run` with `run_kubectl`/`run_kubectl_checked`; timeout preserved
+- [x] Errors via `errors` helpers (`kubectl_failure`/`kubectl_timeout`/`kubectl_not_installed`)
+      with `context`; drop the prose-in-`error` dicts
+- [x] Update `tests/unit/test_kubeconfig.py` (and `test_tools_contexts.py` if its mock path moves)
+- [x] `grep -rn subprocess src/k8s_mcp` → only `kubectl/runner.py`
+
+**Issue 58** — ad-hoc error dicts → helpers (fixed 2026-10-04, see CHANGELOG.md):
+- [x] `errors/core.py`: new `unexpected_output(context, raw, ...)` code + helper (and an
+      ambiguous-from-stderr variant if `ambiguous_resource`'s `candidates`/`hint` shape can't fit)
+- [x] `tools/get.py:182` → helper call; `kubectl/errors.py:39-44,:67-72` → helpers
+- [x] PRD §7 error-code list: add new code(s) (doc-part-of-done)
+- [x] Update `test_tools_get.py`, `test_kubectl_errors.py`; assert helper-shaped responses
+      (`context` present, code not prose)
+
+**Issue 59** — validate `k_patch`'s `type` (fixed 2026-10-04, see CHANGELOG.md):
+- [x] Fail-fast enum check (`strategic`/`merge`/`json`) alongside existing param validations
+- [x] Route the rejection through a common `errors` helper (pick existing or add
+      `invalid_patch_type`; if new → PRD §7)
+- [x] Tests: each bad value rejected before `run_kubectl_checked`; each good value passes through
+      to args unchanged
+
+**Issue 60** — docs-drift sweep (fixed 2026-10-04, see CHANGELOG.md — 13th spot found
+during the sweep: a fourth placeholder hash):
+- [x] FR24 status: this file's row + proposal block + `SPEC.md:869` → "Done" AFTER Issue 56
+      lands (until then "shipped-untested, see Issue 56")
+- [x] FR11 "(open correction)" note here; PRD §6 prompts paragraph signature → `(cluster,
+      issue_description)` per `server.py:223`
+- [x] FIXED row 53 file list → `resolution/annotation_selector.py` (verify `git show --stat
+      37d7dee`)
+- [x] FR25 shortnames in CHANGELOG:125/127 + SPEC:940-948 → match `core_resources.toml`
+      (`limits`; webhooks none) (verify `f2b4772`)
+- [x] CHANGELOG "Committed `TODO`." placeholders (`:145`, `:159`) → real hashes via `git log`
+- [x] CHANGELOG entry for `3d98645` (kubectl env-var passing) — backfill with issue number
+- [x] PRD §12 status paragraph: add date; PRD §13: check off `k_describe`/`k_exec` questions
+      (verify `_SHIP_*` flags + §12 count include both); align `SPEC.md` §7 wording; refresh
+      `server.py:42-44` comments
+- [x] FR21 TODO checklist "6" → "7" error codes (this file, `:131`)
+- [x] README: `ruff check src` → `ruff check src tests`; intro tool bullets → 12-tool surface;
+      CHANGELOG:94 "module-level" → function-local (verify in `resolution/discovery.py`)
+
+**Issue 61** — startup fail-fast vs spec amendment: **resolved 2026-10-04** — user chose
+amend-SPEC; `SPEC.md` §4 rewritten to the shipped lazy reality (see CHANGELOG.md).
+
+**Issue 62** — oversized functions / duplicated validators: **deferred per user decision
+2026-10-04**; its own future PIV cycle.
+
 ---
 
 ## FIXED
@@ -150,9 +241,16 @@ in `CHANGELOG.md`.
 
 | # | Title | File(s) |
 |---|---|---|
+| 63 | `dry_run` outside `none`/`client`/`server` passed verbatim into kubectl `--dry-run` on `k_apply`/`k_patch`/`k_delete` — no fail-fast enum check (found while implementing Issue 59) | `tools/apply.py`, `tools/patch.py`, `tools/delete.py`, `errors/core.py`, `errors/__init__.py`, `server.py`, `PRD.md` §6/§7, `test_tools_apply.py`, `test_tools_patch.py`, `test_tools_delete.py`, `test_errors.py` |
+| 61 | SPEC §4's startup sequence never matched the shipped lazy behavior — spec amended to code reality (docs-only, user decision 2026-10-04) | `SPEC.md`, `server.py` (docstring) |
+| 60 | Docs-drift cluster (12 spots + 1 found during the sweep) from the 2026-10-04 review — stale FR24 status (three-way inconsistent), stale Issue-43 notes, wrong Issue-53 file list, stale FR25 shortnames, 4 unfilled placeholder hashes, missing CHANGELOG entry for `3d98645`, PRD §12 undated / §13 unchecked, "6 vs 7 error codes", README staleness | `SPEC.md`, `PRD.md`, `README.md`, `CHANGELOG.md`, `KNOWN_ISSUES.md`, `server.py`, `tools/describe.py` |
+| 59 | `k_patch`'s `type` validated nowhere — arbitrary string reached kubectl `--type`; fail-fast enum via new `invalid_patch_type` | `tools/patch.py`, `errors/core.py`, `errors/__init__.py`, `PRD.md` §6/§7, `test_tools_patch.py`, `test_errors.py` |
+| 58 | Three ad-hoc error dicts violated SPEC §6's helpers-only rule — new `unexpected_output` code + `kubectl_access_denied`/`kubectl_ambiguous_resource` stderr-variant helpers | `tools/get.py`, `kubectl/errors.py`, `errors/core.py`, `errors/__init__.py`, `PRD.md` §7, `test_tools_get.py`, `test_errors.py` |
+| 57 | `contexts/kubeconfig.py` bypassed the runner's single-subprocess seam and returned prose-in-`error` dicts off the §7 contract | `contexts/kubeconfig.py`, `tools/contexts.py`, `test_kubeconfig.py`, `test_tools_contexts.py` |
+| 56 | Coverage gate red at HEAD (89.58% < 90%): FR24 shipped with zero tests (DoD item 1) + every `@app.tool` wrapper nested inside `main()` unreachable from tests (`server.py` 23%) — extracted `register_tools()`, 27 tests added, gate restored at 94.69% without lowering it | `server.py`, `tests/unit/test_server.py`, `test_tools_get.py`, `test_tools_patch.py`, `test_tools_delete.py`, `test_tools_describe.py`, `test_pruning.py` |
 | 55 | `bound_logs()`'s docstring still describes its `logs` return value as a string — stale since FR22 changed it to `list[str]` (renumbered from 53) | `output/bounding.py` |
 | 54 | Code-quality audit: test-suite lint debt + no coverage gate + version drift + Issue 53 number de-conflicted (2026-10-02) | `tests/unit/*`, `.github/workflows/test.yml`, `pyproject.toml`, `KNOWN_ISSUES.md` |
-| 53 | `annotation_selector` fails to match annotations with dots in key names (e.g., `prometheus.io/scrape=true`) | `resolution/models.py`, `tools/get.py` |
+| 53 | `annotation_selector` fails to match annotations with dots in key names (e.g., `prometheus.io/scrape=true`) | `resolution/annotation_selector.py` (file list corrected per Issue 60 item 4 — was `resolution/models.py`, `tools/get.py`; `git show --stat 37d7dee` never touched either) |
 | 52 | `k_get_helm_release` fails to decode any real Helm v3 release — missing a second base64 layer before gzip | `tools/get_helm_release.py`, `test_tools_get_helm_release.py` |
 | 51 | FR20's `jsonpath_template`→`jsonpath` rename missed `invalid_jsonpath_template()`'s response field and docstring | `errors/core.py`, `test_tools_get.py`, `test_tools_apply.py`, `test_tools_patch.py` |
 | 49 | FR16's `mypy` config disabled its own error codes, silently defeating `disallow_untyped_defs`/`warn_return_any` | `pyproject.toml`, `resolution/resolver.py`, `tools/*.py`, `resolution/core_table.py`, `tools/list_resources.py`, `server.py` |

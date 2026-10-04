@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.k8s_mcp.output.pruning import prune
+from src.k8s_mcp.output.pruning import _extract_list_item_kind, prune
 
 
 @pytest.fixture
@@ -180,3 +180,72 @@ class TestPruneSecretRedaction:
     def test_non_secret_data_preserved(self, full_configmap):
         result = prune(full_configmap, kind="ConfigMap")
         assert result["data"] == {"key": "value"}
+
+
+class TestPruneListItems:
+    """Issue 56: FR24's per-item List pruning recursion (shipped in fbf7782 untested)."""
+
+    def test_podlist_prunes_each_item_keeps_status(self):
+        data = {
+            "apiVersion": "v1",
+            "kind": "PodList",
+            "items": [
+                {
+                    "kind": "Pod",
+                    "metadata": {"name": "p1", "uid": "u1", "managedFields": [{"manager": "m"}]},
+                    "status": {"phase": "Running"},
+                },
+                {
+                    "kind": "Pod",
+                    "metadata": {"name": "p2", "resourceVersion": "9"},
+                    "status": {"phase": "Pending"},
+                },
+            ],
+        }
+
+        # k_get calls prune(data, kind=resource_meta.kind) — kind "Pod" for pods;
+        # the recursion is driven by the payload's own "PodList" kind.
+        result = prune(data, kind="Pod")
+
+        for item in result["items"]:
+            assert "uid" not in item["metadata"]
+            assert "managedFields" not in item["metadata"]
+            assert "resourceVersion" not in item["metadata"]
+            # PodList -> item kind "Pod": status is debugging signal, retained
+            assert "status" in item
+
+    def test_configmaplist_strips_item_status(self):
+        data = {
+            "apiVersion": "v1",
+            "kind": "ConfigMapList",
+            "items": [
+                {"kind": "ConfigMap", "metadata": {"name": "c1", "uid": "u1"}, "status": {"x": 1}},
+            ],
+        }
+
+        result = prune(data, kind="ConfigMap")
+
+        assert "uid" not in result["items"][0]["metadata"]
+        assert "status" not in result["items"][0]
+
+    def test_generic_list_kind_strips_item_status(self):
+        # "List" -> _extract_list_item_kind yields "" (falsy) -> item-level default
+        # behavior: strip status when no kind info is available.
+        data = {
+            "kind": "List",
+            "items": [{"metadata": {"name": "i1", "uid": "u1"}, "status": {"a": 1}}],
+        }
+
+        result = prune(data)
+
+        assert "uid" not in result["items"][0]["metadata"]
+        assert "status" not in result["items"][0]
+
+    def test_empty_items_list_preserved(self):
+        result = prune({"kind": "PodList", "items": []}, kind="Pod")
+        assert result["items"] == []
+
+    def test_extract_list_item_kind_edges(self):
+        assert _extract_list_item_kind(None) is None
+        assert _extract_list_item_kind("Pod") == "Pod"
+        assert _extract_list_item_kind("PodList") == "Pod"

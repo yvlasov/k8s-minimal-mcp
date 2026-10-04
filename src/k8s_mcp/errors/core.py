@@ -26,6 +26,9 @@ ERROR_KUBECTL_UNREACHABLE = "kubectl_unreachable"
 ERROR_AUTHENTICATION_FAILED = "authentication_failed"
 ERROR_KUBECTL_INVALID_ARGUMENT = "kubectl_invalid_argument"
 ERROR_OBJECT_INVALID = "object_invalid"
+ERROR_UNEXPECTED_OUTPUT = "unexpected_output"
+ERROR_INVALID_PATCH_TYPE = "invalid_patch_type"
+ERROR_INVALID_DRY_RUN = "invalid_dry_run"
 
 
 def _base(context: str, code: str) -> dict[str, Any]:
@@ -322,4 +325,82 @@ def object_invalid(
     """API server rejected the object on apply/patch (schema validation)."""
     out = _base(context, ERROR_OBJECT_INVALID)
     out["raw_stderr"] = raw_stderr
+    return out
+
+
+def kubectl_access_denied(
+    context: str,
+    *,
+    raw_stderr: str,
+) -> dict[str, Any]:
+    """kubectl-level RBAC denial (403 from the API server).
+
+    Same §7 code as `access_denied` but a different producer: that helper is
+    the defensive access-level guard (carries `verb`/`access_level`); this one
+    is `map_kubectl_error()`'s stderr mapping (carries `raw_stderr`). Issue 58:
+    constructed here via helper, not ad hoc in kubectl/errors.py.
+    """
+    out = _base(context, ERROR_ACCESS_DENIED)
+    out["raw_stderr"] = raw_stderr
+    return out
+
+
+def kubectl_ambiguous_resource(
+    context: str,
+    *,
+    raw_stderr: str,
+) -> dict[str, Any]:
+    """kubectl resolved an ambiguous resource type server-side.
+
+    Same §7 code as `ambiguous_resource` but no candidate list — kubectl's
+    stderr reports the ambiguity after our resolver already passed, so the
+    payload is the raw stderr (Issue 58: helper-constructed, was an ad hoc dict
+    in kubectl/errors.py).
+    """
+    out = _base(context, ERROR_AMBIGUOUS_RESOURCE)
+    out["raw_stderr"] = raw_stderr
+    return out
+
+
+def unexpected_output(
+    context: str,
+    *,
+    raw: str,
+) -> dict[str, Any]:
+    """kubectl exited 0 but its stdout was not parseable JSON.
+
+    JSON-expecting paths only; the unparseable text is returned verbatim under
+    `raw` for self-correction (Issue 58: replaces the prose-as-code ad hoc dict
+    in tools/get.py).
+    """
+    out = _base(context, ERROR_UNEXPECTED_OUTPUT)
+    out["raw"] = raw
+    return out
+
+
+def invalid_patch_type(
+    context: str,
+    type: str,  # noqa: A002 — mirrors the k_patch parameter name it rejects
+    *,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    """k_patch: `type` outside the documented enum (Issue 59, PRD §6)."""
+    out = _base(context, ERROR_INVALID_PATCH_TYPE)
+    out["type"] = type
+    if detail:
+        out["detail"] = detail
+    return out
+
+
+def invalid_dry_run(
+    context: str,
+    dry_run: str,
+    *,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    """k_apply/k_patch/k_delete: `dry_run` outside none/client/server (Issue 63)."""
+    out = _base(context, ERROR_INVALID_DRY_RUN)
+    out["dry_run"] = dry_run
+    if detail:
+        out["detail"] = detail
     return out

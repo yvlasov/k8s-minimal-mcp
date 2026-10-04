@@ -198,3 +198,57 @@ class TestHandleDeleteFullyQualifiedResource:
         assert result["success"] is True
         args = mock_run.call_args[0][1]
         assert args[1] == "deployments.apps"
+
+
+class TestHandleDeleteDryRun:
+    """Issue 63: unknown dry_run rejected fail-fast before resolve/subprocess."""
+
+    @patch("src.k8s_mcp.tools.delete.resolve")
+    def test_bad_dry_run_rejected_before_resolve(self, mock_resolve):
+        result = handle_delete("test-context", "deployments", name="d1",
+                               namespace="default", dry_run="serverr")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_dry_run"
+        assert result["dry_run"] == "serverr"
+        mock_resolve.assert_not_called()
+
+
+class TestHandleDeleteNames:
+    """Issue 56: FR24 `names` branches (shipped in fbf7782 with zero tests)."""
+
+    @patch("src.k8s_mcp.tools.delete.resolve")
+    @patch("src.k8s_mcp.tools.delete.run_kubectl_checked")
+    def test_names_reaches_kubectl_args(self, mock_run, mock_resolve, deploy_meta):
+        mock_resolve.return_value = deploy_meta
+        mock_run.return_value = {"stdout": "deployment.apps/d1 deleted\ndeployment.apps/d2 deleted\n"}
+
+        result = handle_delete("test-context", "deployments", names=["d1", "d2"], namespace="default")
+
+        assert result["success"] is True
+        args = mock_run.call_args[0][1]
+        assert args == ["delete", "deployments.apps", "d1", "d2", "-n", "default"]
+
+    @patch("src.k8s_mcp.tools.delete.resolve")
+    @patch("src.k8s_mcp.tools.delete.run_kubectl_checked")
+    def test_name_and_names_both_rejected(self, mock_run, mock_resolve, deploy_meta):
+        mock_resolve.return_value = deploy_meta
+
+        result = handle_delete("test-context", "deployments", name="d1", names=["d2"], namespace="default")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_selector"
+        mock_run.assert_not_called()
+
+    @patch("src.k8s_mcp.tools.delete.resolve")
+    @patch("src.k8s_mcp.tools.delete.run_kubectl_checked")
+    def test_names_with_label_selector_rejected(self, mock_run, mock_resolve, deploy_meta):
+        mock_resolve.return_value = deploy_meta
+
+        result = handle_delete(
+            "test-context", "deployments", names=["d1"], label_selector="app=x", namespace="default",
+        )
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_selector"
+        mock_run.assert_not_called()

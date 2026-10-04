@@ -160,13 +160,21 @@ Pre-execution validation (R8 — namespaced/cluster-scoped check, verb-support c
 
 ## 4. Startup Sequence (`server.py`)
 
+Amended 2026-10-04 per Issue 61: the code's lazy behavior is the source of truth; the former
+steps 2-3 (eager core-table load, fail-fast context enumeration at startup) never shipped and are
+superseded by the note below.
+
 1. Parse CLI args (`cli.py`): `--access-level {readonly,readwrite,admin}` (default `readonly`), `--allow-namespaces` (comma list, empty = all). No `--kubeconfig` flag — see PRD §11.
-2. Load core resource table (`resolution/core_table.py` reads `data/core_resources.toml`).
-3. Enumerate kubeconfig contexts (`contexts/kubeconfig.py`, via kubectl's own default kubeconfig resolution) — fail fast if none found.
-4. Compute allowed verb set from access level (`access.py`).
-5. Register only the tools whose verb is in the allowed set (R7) — conditional `@app.tool` registration, not runtime rejection.
-6. Register MCP prompts (FR11, `prompts.py`) unconditionally, via `@app.prompt(...)` — not gated by access level, since a prompt returns only guidance text; the tool calls it recommends still pass the normal gate when actually issued.
-7. Start FastMCP server.
+2. Compute allowed verb set from access level (`access.py`).
+3. Register only the tools whose verb is in the allowed set (R7) — conditional `@app.tool` registration, not runtime rejection. Registration lives in module-level `register_tools(app, access_level, discovery_cache, allow_namespaces)` (Issue 56 extraction) so the registered wrappers are testable without starting the stdio loop.
+4. Register MCP prompts (FR11, `prompts.py`) unconditionally, via `@app.prompt(...)` — not gated by access level, since a prompt returns only guidance text; the tool calls it recommends still pass the normal gate when actually issued.
+5. Start FastMCP server (`app.run()`).
+
+**Lazy state, deliberately:** the core resource table loads on first `resolve()`
+(`resolution/resolver.py`), and kubeconfig contexts are enumerated on demand by `k_list_contexts`
+(`contexts/kubeconfig.py`) — not at startup. A kubeconfig-less environment therefore boots fine and
+surfaces the problem per call in §7 shape; `unknown_context` errors carry the full valid-context
+list for one-round-trip self-correction (PRD R3), which startup fail-fast would not improve on.
 
 Namespace allowlist (§8) is enforced inside each mutating/read tool by checking the resolved `namespace` param against the allowlist before calling `kubectl/runner.py` — it's an orthogonal axis to access level, so it doesn't affect tool registration, only per-call validation (alongside R8).
 
@@ -208,7 +216,7 @@ Loaded once at startup into `list[ResourceMeta]`. Discovery-cache entries (`reso
 - **`context` is threaded explicitly through every function call** in the chain above — never stored on a class instance, never module-level state. This is the code-level enforcement of R3 ("no session-scoped state").
 - **Passing `namespace` into `validate()` (R8) is not the same as passing it to kubectl** — each tool module must independently append `-n <namespace>` (or the ad hoc equivalent for a hand-built kubectl invocation) to its own `args`. `validate()` only performs the pre-execution namespaced/cluster-scoped check; it has no effect on the constructed command. This is not hypothetical: `k_exec` accepted, validated, and even echoed `namespace` in every error path, but never appended it to `args` — every call silently ran against the context's default namespace instead of the caller's, undetected because the existing tests asserted the resulting `args` list *without* `-n` as correct (see `CHANGELOG.md` Issue 46). When adding or reviewing a namespaced tool, grep `src/k8s_mcp/tools/*.py` for `"-n"` and confirm the new/changed tool is in that list.
 - **Ambiguous resolution never guesses.** `resolver.py` returning multiple candidates is a normal, tested code path — not an exception path to be minimized away.
-- **Every handler's tests must include at least one call through `_dispatch()`** (or the registered `@app.tool`/`@app.prompt` wrapper), not only direct calls to `handle_<tool>(...)`. `_dispatch()` injects `discovery_cache` (and, for mutating verbs, audit logging / namespace-allowlist checks) via `**kwargs` into every handler call — a handler whose signature doesn't accept what `_dispatch()` sends crashes on every real invocation, and a test suite that only calls the handler directly will never catch it (see `CHANGELOG.md` Issue 40/41). `tests/unit/test_server.py` is the smoke test that closes this gap structurally.
+- **Every handler's tests must include at least one call through `_dispatch()`** (or the registered `@app.tool`/`@app.prompt` wrapper), not only direct calls to `handle_<tool>(...)`. `_dispatch()` injects `discovery_cache` (and, for mutating verbs, audit logging / namespace-allowlist checks) via `**kwargs` into every handler call — a handler whose signature doesn't accept what `_dispatch()` sends crashes on every real invocation, and a test suite that only calls the handler directly will never catch it (see `CHANGELOG.md` Issue 40/41). `tests/unit/test_server.py` is the smoke test that closes this gap structurally. Since Issue 56, the registered wrappers live in module-level `register_tools(app, access_level, discovery_cache, allow_namespaces)` and are reachable by tests via a recording fake app (`test_server.py`'s `TestRegistrationPerAccessLevel`/`TestRegisteredWrapperDriveThrough`) — new tools/params should extend those tables, not add new direct-handler-only tests.
 - **Tools build kubectl's resource argument from `resource_meta.fully_qualified_name`, never bare `.canonical`.** `fully_qualified_name` collapses to plain `canonical` when `group == ""` (the common case, zero behavior change), but includes `.group` when set — the only way a resolved group-qualification (R6's escape hatch) survives into the kubectl command instead of being silently discarded (see `CHANGELOG.md` Issue 38).
 - **Error responses are constructed only via `errors.py` helpers** (e.g. `errors.ambiguous_resource(candidates, hint)`), never assembled ad hoc in a tool — guarantees the §7 shape stays identical everywhere.
 - **`kubectl` subprocess calls set an explicit timeout** and capture stderr separately from stdout — required for `kubectl/errors.py` to map failures to §7 error codes rather than surfacing raw kubectl text.
@@ -228,8 +236,10 @@ Format: JSON with schema: {context: string, tool: string, success: boolean, data
 
 Matching PRD §13, this spec does not resolve:
 
-- Whether `k_describe` ships (module exists either way; registration is conditional).
-- Whether `k_exec` ships at `admin` or is deferred further.
+- ~~Whether `k_describe` ships~~ — **resolved, shipped** (readonly+; `_SHIP_DESCRIBE` in
+  `server.py`, counted in PRD §12's 12-tool total; Issue 60 item 10).
+- ~~Whether `k_exec` ships at `admin` or is deferred further~~ — **resolved, shipped at `admin`**
+  (`_SHIP_EXEC`; same resolution path as above).
 - Discovery cache refresh trigger (TTL-only vs. TTL+on-miss — spec assumes both per §7 pseudocode, but this is not locked).
 
 Do not pre-decide these in code structure beyond what's needed to keep them cheaply reversible (i.e., conditional registration, not hardcoded tool lists).
@@ -866,7 +876,10 @@ the test cases above, one-to-one.
 
 ### FR24. Multi-resource operations: add `names: list[str]` param to `k_get`/`k_delete`/`k_patch`/`k_describe`
 
-**Status: Proposed, not yet implemented** — plan ready to execute.
+**Status: Done** — shipped `fbf7782` (2026-10-01); dispatch-path tests closed via Issue 56
+(2026-10-04). The prior "Proposed, not yet implemented" line was stale against both the code and
+this section's own "All listed below are shipped" header (Issue 60 item 1). Implementation shape
+as planned:
 
 - **Motivation:** kubectl supports multiple names in a single invocation (`kubectl get pods pod1 pod2 pod3`,
   `kubectl delete pods pod1 pod2 pod3`, `kubectl patch deploy dep1 dep2 -p '...'`, etc.), but the MCP
@@ -937,15 +950,15 @@ the per-tool test cases, one-to-one.
   **Scheduling & Resource Management:**
   - `priorityclasses` (short: `pc`), kind `PriorityClass`, group `scheduling.k8s.io`, version `v1`, namespaced: false
   - `poddisruptionbudgets` (short: `pdb`), kind `PodDisruptionBudget`, group `policy`, version `v1`, namespaced: true
-  - `limitranges` (short: `limitrange`), kind `LimitRange`, group `""`, version `v1`, namespaced: true
+  - `limitranges` (short: `limits` — corrected from the claimed `limitrange` in `f2b4772`), kind `LimitRange`, group `""`, version `v1`, namespaced: true
   - `resourcequotas` (short: `quota`), kind `ResourceQuota`, group `""`, version `v1`, namespaced: true
 
   **Autoscaling:**
   - `horizontalpodautoscalers` (short: `hpa`), kind `HorizontalPodAutoscaler`, group `autoscaling`, version `v2`, namespaced: true
 
   **Admission Controllers:**
-  - `validatingwebhookconfigurations` (short: `validatingwebhookcfg`), kind `ValidatingWebhookConfiguration`, group `admissionregistration.k8s.io`, version `v1`, namespaced: false
-  - `mutatingwebhookconfigurations` (short: `mutatingwebhookcfg`), kind `MutatingWebhookConfiguration`, group `admissionregistration.k8s.io`, version `v1`, namespaced: false
+  - `validatingwebhookconfigurations` (no shortnames — the claimed `validatingwebhookcfg` was corrected in `f2b4772`), kind `ValidatingWebhookConfiguration`, group `admissionregistration.k8s.io`, version `v1`, namespaced: false
+  - `mutatingwebhookconfigurations` (no shortnames — the claimed `mutatingwebhookcfg` was corrected in `f2b4772`), kind `MutatingWebhookConfiguration`, group `admissionregistration.k8s.io`, version `v1`, namespaced: false
 
 - **Verbs for all added resources:** `get`, `apply`, `patch`, `delete` (standard CRUD for built-in objects).
 

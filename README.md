@@ -1,10 +1,10 @@
 # k8s-minimal-mcp
 
-Minimal verb-based Kubernetes MCP server. Replaces 200+ per-resource tools with a fixed set of 6 verbs (`get`, `logs`, `apply`, `patch`, `delete`, `exec`) parameterized by resource type and kubeconfig context.
+Minimal verb-based Kubernetes MCP server. Replaces 200+ per-resource tools with a fixed set of verb-based tools — core verbs (`get`, `logs`, `apply`, `patch`, `delete`, `exec`) plus discovery/RBAC/Secret support tools — parameterized by resource type and kubeconfig context (12 tools at `admin`, 6 at `readonly`).
 
 ## Features
 
-- **Verb-based tools** — `k_get`, `k_logs`, `k_apply`, `k_patch`, `k_delete`, `k_exec` (+ `k_describe`, `k_list_contexts`)
+- **Verb-based tools** — `k_get`, `k_logs`, `k_apply`, `k_patch`, `k_delete`, `k_exec`, `k_describe`, `k_list_contexts`, `k_list_resources`, `k_auth_can_i`, `k_get_secret_to_file`, `k_get_helm_release` (gated by access level)
 - **Two-tier resource resolution** — hardcoded core table + per-context `kubectl api-resources` discovery for CRDs
 - **Access-level gating** — `readonly` (default), `readwrite`, `admin` (filters tools at registration)
 - **Field pruning** — strips `uid`, `generation`, `resourceVersion`, `managedFields`, `last-applied-configuration` by default
@@ -129,7 +129,7 @@ Core resources (pods, deployments, services, etc.) resolve from a static table. 
 uv sync --extra dev
 PYTHONPATH=. uv run pytest -v
 uv run mypy src
-uv run ruff check src
+uv run ruff check src tests
 uv run ruff format --check src
 ```
 

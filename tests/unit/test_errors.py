@@ -6,18 +6,24 @@ from src.k8s_mcp.errors import (
     ERROR_ACCESS_DENIED,
     ERROR_AMBIGUOUS_RESOURCE,
     ERROR_EXEC_FAILED,
+    ERROR_INVALID_DRY_RUN,
     ERROR_KUBECTL_FAILURE,
     ERROR_NAMESPACE_INVALID,
     ERROR_OBJECT_NOT_FOUND,
+    ERROR_UNEXPECTED_OUTPUT,
     ERROR_UNKNOWN_CONTEXT,
     ERROR_UNKNOWN_RESOURCE,
     ERROR_VERB_UNSUPPORTED,
     access_denied,
     ambiguous_resource,
     exec_failed,
+    invalid_dry_run,
+    kubectl_access_denied,
+    kubectl_ambiguous_resource,
     kubectl_failure,
     namespace_invalid,
     object_not_found,
+    unexpected_output,
     unknown_context,
     unknown_resource,
     verb_unsupported,
@@ -31,6 +37,38 @@ class TestErrorShapes:
         assert err["error"] == ERROR_AMBIGUOUS_RESOURCE
         assert err["candidates"] == ["policies.kyverno.io", "authorizationpolicies.security.istio.io"]
         assert "hint" in err
+
+    def test_kubectl_ambiguous_resource_stderr_variant(self):
+        # Issue 58: same §7 code, kubectl-level producer (raw_stderr, no candidates).
+        err = kubectl_ambiguous_resource("prod", raw_stderr="Ambiguous resource (please specify)")
+        assert err["context"] == "prod"
+        assert err["error"] == ERROR_AMBIGUOUS_RESOURCE
+        assert err["raw_stderr"] == "Ambiguous resource (please specify)"
+        assert "candidates" not in err
+
+    def test_kubectl_access_denied_stderr_variant(self):
+        # Issue 58: same §7 code as the access-level guard helper, but the
+        # kubectl-403 producer carries raw_stderr instead of verb/access_level.
+        err = kubectl_access_denied("prod", raw_stderr="forbidden: cannot list pods")
+        assert err["context"] == "prod"
+        assert err["error"] == ERROR_ACCESS_DENIED
+        assert err["raw_stderr"] == "forbidden: cannot list pods"
+        assert "verb" not in err
+
+    def test_unexpected_output(self):
+        # Issue 58: replaces the prose-as-code ad hoc dict in tools/get.py.
+        err = unexpected_output("prod", raw="not json at all\n")
+        assert err["context"] == "prod"
+        assert err["error"] == ERROR_UNEXPECTED_OUTPUT
+        assert err["raw"] == "not json at all\n"
+
+    def test_invalid_dry_run(self):
+        # Issue 63: dry_run fail-fast on k_apply/k_patch/k_delete.
+        err = invalid_dry_run("prod", "cleint", detail="dry_run must be one of: none, client, server")
+        assert err["context"] == "prod"
+        assert err["error"] == ERROR_INVALID_DRY_RUN
+        assert err["dry_run"] == "cleint"
+        assert "none, client, server" in err["detail"]
 
     def test_unknown_resource(self):
         err = unknown_resource("dev", "foobar", suggestions=["pods", "services"])

@@ -1,4 +1,4 @@
-"""k_describe tool (PRD §6, pending §13).
+"""k_describe tool (PRD §6; §13 resolved — shipped, see server.py).
 
 Delegates verbatim to `kubectl describe`. Output is verbose unstructured text.
 

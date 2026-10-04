@@ -11,6 +11,185 @@ Ordered newest-first within each section, matching the order these were actually
 
 ## Defects
 
+### Issue 63 — `dry_run` outside `none`/`client`/`server` passed verbatim into kubectl's `--dry-run` (2026-10-04)
+
+**File:** `tools/apply.py`, `tools/patch.py`, `tools/delete.py`, `errors/core.py`, `errors/__init__.py`, `server.py`, `PRD.md` §6/§7, `tests/unit/test_tools_apply.py`, `test_tools_patch.py`, `test_tools_delete.py`, `test_errors.py`
+
+**Root cause:** found while implementing Issue 59 — the same documented-enum-without-fail-fast
+family: `dry_run` is documented (`none`/`client`/`server`) but no tool checked it; an arbitrary
+string reached `--dry-run` and failed late as an opaque kubectl-level error, violating the
+project's fail-fast-before-subprocess pattern (`output`, `jsonpath`, `name`/`names` are all
+rejected pre-resolve).
+
+**Fix:** `_VALID_DRY_RUNS = ("none", "client", "server")` module constant per tool (local-constant
+pattern established with Issue 59's `_VALID_PATCH_TYPES`; consolidation intentionally deferred to
+Issue 62) + fail-fast check via new `errors.invalid_dry_run` helper (code `invalid_dry_run`,
+payload `dry_run` + `detail`) placed with each tool's other param checks. `server.py` tool
+descriptions now list the enum; PRD §7 gained the code; §6 `k_apply` row documents the
+fail-fast (patch/delete rows inherit via "same as `k_apply`").
+
+**Tests:** bad-value rejection before `resolve()` per tool (field + detail asserted);
+parametrized `none`/`client`/`server` pass-through asserting `--dry-run` presence ⇔ value ≠
+`none`; `test_errors.py` helper shape.
+
+**Verification:** 472 passed, 9 skipped; coverage 94.88% ≥ 90 gate; `ruff check src tests` and
+`mypy src` clean (all measured 2026-10-04). Filed-and-fixed same day by user decision; no
+commit hash yet — work staged on top of `4fac0f5`, commit on request.
+
+### Issue 61 — SPEC §4's startup sequence never matched the shipped lazy behavior; spec amended (2026-10-04)
+
+**File:** `SPEC.md` §4, `src/k8s_mcp/server.py` (module docstring)
+
+**Root cause:** SPEC §4 steps 2-3 prescribed eager core-table load and fail-fast kubeconfig
+context enumeration at startup; `main()` never called `list_kubeconfig_contexts()` (its only
+caller was `tools/contexts.py:18`, per-call) and `resolver.py` lazy-loads the table on first
+`resolve()`. User decision 2026-10-04: the shipped behavior is the source of truth.
+
+**Fix:** SPEC §4 rewritten as the actual sequence (parse → `allowed_verbs` → module-level
+`register_tools()` (Issue 56) → prompts → `app.run()`), with an explicit "Lazy state,
+deliberately" paragraph documenting the lazy core table / on-demand context enumeration and the
+rationale that startup fail-fast was superseded (a kubeconfig-less host boots fine; per-call §7
+errors already carry the full valid-context list via `unknown_context`); `server.py`'s module
+docstring aligned to the same sequence.
+
+**Verification:** docs + docstring only; final run 472 passed, 9 skipped, gates green.
+
+### Issue 60 — docs-drift sweep: 12 review spots + 1 found during the sweep (2026-10-04)
+
+**File:** `SPEC.md`, `PRD.md`, `README.md`, `CHANGELOG.md`, `KNOWN_ISSUES.md`, `src/k8s_mcp/server.py`, `src/k8s_mcp/tools/describe.py`
+
+**Root cause:** recurrence of the Issue 22 family — FR24 shipped (`fbf7782`) while this file's FR
+row and `SPEC.md` §8 still said "Proposed, not yet implemented" (with §8's own header claiming
+"All listed below are shipped" — a three-way contradiction), plus ~11 other stale claims. Each
+correction below was verified against `git show`/grep of the cited file or commit before writing.
+
+**Fix (per spot):**
+1. FR24 status: this file's row + proposal-block preamble → "Done — shipped `fbf7782`, tests
+   closed via Issue 56"; `SPEC.md` §8 FR24 status line → same (fixes its own §8-header
+   contradiction).
+2. FR11 row "see Issue 43 (open correction)" → "(resolved)"; spot 3: PRD §6 prompts paragraph →
+   corrected `(cluster, issue_description)` signature per `server.py` registration.
+4. FIXED row 53 file list → `resolution/annotation_selector.py` (`git show --stat 37d7dee` never
+   touched the previously claimed `models.py`/`get.py`).
+5. FR25 shortnames: CHANGELOG/SPEC `limitrange` → `limits`, webhook claims → none — matching
+   `core_resources.toml` as corrected in `f2b4772` (docs never followed).
+6-7. All placeholder hashes filled — the filing expected two, the sweep found **four** (13th
+   spot): `CHANGELOG.md` `Committed TODO.` → `0143037` (FR22), `Comitted TODO.` → `7b31f31`
+   (FR21), → `61de994` (Issue 51), → `079c6ff` (Issue 49), typos corrected.
+8. New "Unfiled change — `3d98645`" entry backfilling the missing CHANGELOG record for the
+   kubectl env-var propagation (below, in Feature Requests section).
+9. PRD §12 status paragraph dated (`2026-10-04 @ 4fac0f5`, counts re-verified against
+   `access.py` + `test_server.py` registration assertions).
+10. PRD §13 `k_describe`/`k_exec` checked as resolved-shipped; `SPEC.md` §7 aligned; stale
+   `server.py` `_SHIP_*` "TBD" comments and `describe.py` "pending §13" docstring refreshed.
+11. This file's FR21 checklist "6 new error codes" → 7 (matches FR21's actual shipped set).
+12. README: Testing section `ruff check src` → `ruff check src tests` (matches CI since
+    Issue 54); intro/features bullets updated from the 6-verb era to the shipped 12-tool surface;
+    CHANGELOG FR23 entry's "module-level" `_API_VERB_TO_MCP_VERBS` claim → function-local.
+
+**Tests:** n/a — docs and comments only, zero behavior change.
+
+**Verification:** 462 passed, 9 skipped; coverage 94.82%; `ruff check src tests` and `mypy src`
+clean before/after the sweep.
+
+### Issue 59 — `k_patch`'s `type` enum validated nowhere; arbitrary strings reached kubectl's `--type` (2026-10-04)
+
+**File:** `tools/patch.py`, `errors/core.py`, `errors/__init__.py`, `PRD.md` §6/§7, `tests/unit/test_tools_patch.py`, `test_errors.py`
+
+**Root cause:** PRD §6 documents `strategic`/`merge`/`json`, but the handler appended the raw
+parameter to `args.extend(["--type", type])` unchecked — the late-failure path contradicted the
+fail-fast-before-subprocess pattern every other param follows.
+
+**Fix:** `_VALID_PATCH_TYPES` constant + fail-fast check placed with the existing param gates
+(before `resolve()`), rejecting via new `errors.invalid_patch_type` helper (code
+`invalid_patch_type`, payload `type` + `detail`); PRD §7 lists the new code.
+
+**Tests:** bad value rejected before `resolve()` (asserting code, field, detail); all three
+documented values parametrized through to `--type` verbatim; helper shape in `test_errors.py`.
+
+**Verification:** 462 passed, 9 skipped; coverage gate green; ruff/mypy clean.
+
+### Issue 58 — three ad-hoc error dicts violated SPEC §6's helpers-only rule (2026-10-04)
+
+**File:** `tools/get.py`, `kubectl/errors.py`, `errors/core.py`, `errors/__init__.py`, `PRD.md` §7, `tests/unit/test_tools_get.py`, `test_errors.py`
+
+**Root cause:** `tools/get.py` returned `{"error": "unexpected kubectl output (not JSON)", "raw": …}` —
+prose in the `error` field, no `context` — and `kubectl/errors.py` hand-built the
+`ambiguous_resource` (`:39-44`) and `access_denied` (`:67-72`) dicts, because the same-code
+helpers (`ambiguous_resource(candidates, hint)`, `access_denied(verb, access_level)`) model
+different producers with different payloads.
+
+**Fix:** three helpers in `errors/core.py` — `unexpected_output` (new code, `raw` payload),
+`kubectl_access_denied` and `kubectl_ambiguous_resource` (same §7 codes as their sibling
+helpers, `raw_stderr` payload; docstrings explain the dual-producer split) — all three sites
+routed through helpers; PRD §7 gained `unexpected_output`; exports sorted to keep ruff I001.
+
+**Tests:** helper-shape tests ×3; `test_tools_get.py` non-JSON stdout now asserts the §7 shape
+(code + `context` + `raw`); existing `test_kubectl_errors.py` ambiguous/forbidden cases passed
+**unchanged**, confirming response shapes were preserved.
+
+**Verification:** 458 passed, 9 skipped; gates green.
+
+### Issue 57 — `contexts/kubeconfig.py` bypassed the runner's single-subprocess seam (2026-10-04)
+
+**File:** `contexts/kubeconfig.py`, `tools/contexts.py`, `tests/unit/test_kubeconfig.py`, `tests/unit/test_tools_contexts.py`
+
+**Root cause:** `list_kubeconfig_contexts()` called `subprocess.run` directly — the only
+non-`runner.py` call site in `src/` (grep-verified) — outside R11/SPEC §2's seam. It did set
+`timeout=10`, but its failure paths put prose sentences into `error` with no `context`
+(`:31` off-shape `kubectl_failure`, `:39`/`:41` prose), the exact contract class FR21 closed for
+the runner while leaving this site out of scope.
+
+**Fix:** runs through `run_kubectl_checked(context, ["config", "get-contexts"],
+output_format="name")` — `kubectl config` ignores `--context` for this pure local read
+(verified empirically), so the caller's echoed context is a harmless nominal value that lets
+runner-mapped errors carry `context`; `tools/contexts.py` now forwards the caller's context.
+
+**Tests:** `test_kubeconfig.py` rewritten to mock the seam like every other tool's tests do
+(parse/sort/dedupe, blank-line filter, exact runner call args incl. `output_format="name"`,
+error pass-through); `test_tools_contexts.py` asserts context forwarding (was no-args).
+
+**Verification:** live smoke: `list_kubeconfig_contexts("sinsia-pl")` → 6 real contexts through
+the runner; `grep subprocess src/k8s_mcp` → only `kubectl/runner.py`. 454 passed, 9 skipped;
+gates green.
+
+### Issue 56 — coverage gate red at HEAD: FR24 shipped untested + `@app.tool` wrappers unreachable inside `main()` (2026-10-04)
+
+**File:** `server.py`, `tests/unit/test_server.py`, `tests/unit/test_tools_get.py`, `test_tools_patch.py`, `test_tools_delete.py`, `test_tools_describe.py`, `test_pruning.py`
+
+**Root cause:** CI's exact command at `4fac0f5` measured **89.58% against `--cov-fail-under=90`** —
+the gate was born failing. CI had never run it: the gate commit `24e85b0` (Issue 54) and four
+later commits were unpushed (`git log origin/main..HEAD`), and the latest CI run on the remote was
+pre-gate `3d98645` (`gh run list`) — so the next push would have gone red on both matrix legs.
+Issue 54's "coverage measured at 90%" was not reproducible (only docs commits followed it, no
+statement-count changes) — an unverified DoD item 6. Two verified coverage holes:
+1. **FR24 shipped with zero tests** — `git show --stat fbf7782` contains no `tests/` file and
+   exact greps (`names=`, `"names"`) across `tests/unit/` hit nothing; per-file uncovered lines
+   were exactly the names branches (e.g. `patch.py:75,80,85` validation, `:107-108`
+   `args.extend(names)`) plus `prune()`'s List-recursion edges.
+2. **`server.py` at 23% (75/97 statements)** — every registered wrapper body and access-level
+   gate was nested inside `main()`, unreachable without starting the stdio loop; Issue 41's suite
+   could only call `_dispatch()` directly, never "the registered `@app.tool` wrapper" DoD item 1
+   names.
+
+**Fix:** extracted `register_tools(app, access_level, discovery_cache, allow_namespaces)` from
+`main()` — which became parse → logging → build app → `register_tools()` → `app.run()`;
+`context`/`discovery_cache`/`allow_namespaces` stay explicit (R3).
+
+**Tests (27 new):** `_RecordingApp` fake app + `TestRegistrationPerAccessLevel` (exact 6/9/12
+tool sets + 3 prompts per level — the R7 surface itself now asserted) +
+`TestRegisteredWrapperDriveThrough` (every registered wrapper called per level with the seam
+mocked, envelope shape asserted — DoD item 1's wrapper path closed structurally). FR24:
+validation branches ×4 tools (neither/both/exactly-one happy), names → exact kubectl-args
+construction ×4, `names`×`all_namespaces` (get) and `names`×`label_selector` (delete)
+fail-fast-before-resolve, `TestPruneListItems` (PodList keeps item status via
+`_extract_list_item_kind("PodList")=="Pod"`, ConfigMapList strips it, generic `List` and empty
+items edges).
+
+**Verification:** at landing 454 passed, 9 skipped; coverage **94.69%** with the threshold
+unchanged; `ruff check src tests` + `mypy src` clean. Session final: 472 passed, 9 skipped,
+94.88%.
+
 ### Issue 54 — Code-quality audit: test-suite lint debt + no coverage gate + version drift + Issue 53 number de-conflicted (2026-10-02)
 
 **Files:** `tests/unit/*`, `.github/workflows/test.yml`, `pyproject.toml`, `KNOWN_ISSUES.md`
@@ -91,7 +270,7 @@ _TERM_RE = re.compile(
 **Files:** `src/k8s_mcp/resolution/discovery.py`, `src/k8s_mcp/data/core_resources.toml`, `tests/unit/test_discovery.py`
 
 **What changed:**
-1. **`resolution/discovery.py`:** added module-level translation table `_API_VERB_TO_MCP_VERBS` mapping Kubernetes API verbs to MCP tool-verbs:
+1. **`resolution/discovery.py`:** added translation table `_API_VERB_TO_MCP_VERBS` (function-local to `_parse_api_resources`, not module-level — wording corrected per Issue 60) mapping Kubernetes API verbs to MCP tool-verbs:
    - `get`/`list` → `get`
    - `create`/`update` → `apply`
    - `patch` → `apply`, `patch`
@@ -115,6 +294,12 @@ _TERM_RE = re.compile(
 
 419 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
 
+**Note (added via Issue 56):** this FR shipped with zero tests — the commit contains no `tests/`
+file and no test references the `names` parameter (Definition-of-Done item 1 violation at ship
+time, undetected because the suite count stayed unchanged). Validation branches, args
+construction, incompatibility checks, and `prune()`'s List recursion were covered on 2026-10-04 —
+see the Issue 56 entry.
+
 ### FR25 — Add RBAC and common built-in resources to the core table
 
 **Files:** `src/k8s_mcp/data/core_resources.toml`, `KNOWN_ISSUES.md`, `SPEC.md`, `CHANGELOG.md`
@@ -122,13 +307,29 @@ _TERM_RE = re.compile(
 **What changed:**
 1. **`core_resources.toml`:** Added 12 new built-in resource blocks to the core table:
    - RBAC: `serviceaccounts` (sa), `roles`, `clusterroles` (cr), `rolebindings`, `clusterrolebindings` (crb)
-   - Scheduling & Resource Management: `priorityclasses` (pc), `poddisruptionbudgets` (pdb), `limitranges` (limitrange), `resourcequotas` (quota)
+   - Scheduling & Resource Management: `priorityclasses` (pc), `poddisruptionbudgets` (pdb), `limitranges` (limits — the claimed `limitrange` was corrected in `f2b4772`; see Issue 60), `resourcequotas` (quota)
    - Autoscaling: `horizontalpodautoscalers` (hpa)
-   - Admission Controllers: `validatingwebhookconfigurations` (validatingwebhookcfg), `mutatingwebhookconfigurations` (mutatingwebhookcfg)
+   - Admission Controllers: `validatingwebhookconfigurations` (no shortnames — the claimed `validatingwebhookcfg` was corrected in `f2b4772`; see Issue 60), `mutatingwebhookconfigurations` (no shortnames — the claimed `mutatingwebhookcfg` was likewise corrected; see Issue 60)
 2. All added resources support verbs: `get`, `apply`, `patch`, `delete` (standard CRUD for built-in objects).
 3. **KNOWN_ISSUES.md / SPEC.md:** Updated FR25 entry to reflect the extended resource list.
 
 419 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
+
+### Unfiled change — `3d98645` (2026-10-01): kubectl subprocess now receives an explicit environment copy
+
+**Files:** `src/k8s_mcp/kubectl/runner.py` (+3), `tests/unit/test_kubectl_runner.py` (+107)
+
+**What changed:** `run_kubectl` passes `env=os.environ.copy()` explicitly to `subprocess.run`
+instead of relying on implicit inheritance, so `KUBECONFIG`/proxy variables reach kubectl
+deterministically regardless of how the MCP host sanitizes child-process environments. Added
+`test_kubectl_runner.py` coverage for environment passing including proxy variables.
+
+**Verification:** CI run for `3d98645` on `main` succeeded (GitHub Actions run `36873710663`,
+2026-10-01) — confirmed via `gh run list` during the Issue 60 sweep.
+
+**Backfilled per Issue 60 item 8:** the commit shipped without an issue number or CHANGELOG entry
+(Definition-of-Done item 7 gap), leaving `v0.2.0`-tag consumers without a record of the behavior
+change. No code change here — this entry is the record.
 
 ### FR22 — Emit multiline tool output as a JSON array of lines instead of an escaped string
 
@@ -142,7 +343,7 @@ _TERM_RE = re.compile(
 
 416 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
 
-Committed `TODO`.
+Committed `0143037`.
 
 ### FR21 — Distinguishable error codes for timeout/connectivity, authentication vs. authorization, and kubectl-level argument failures
 
@@ -156,7 +357,7 @@ Committed `TODO`.
 
 416 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
 
-Comitted `TODO`.
+Committed `7b31f31`.
 
 ### FR20 — Rename `jsonpath_template` → `jsonpath`, drop `output="jsonpath"`, unconditional precedence over `output`
 
@@ -430,7 +631,7 @@ actual trigger. Bypasses pruning/bounding, returns the raw kubectl jsonpath stri
 
 412 passed, 9 skipped. `uv run ruff check src` clean. `uv run mypy src` → 0 errors.
 
-Comitted `TODO`.
+Committed `61de994`.
 
 ### 49. FR16's `mypy` config disabled its own error codes, silently defeating `disallow_untyped_defs`/`warn_return_any`
 
@@ -445,7 +646,7 @@ Comitted `TODO`.
 
 412 passed, 9 skipped. `uv run mypy src` → 0 errors. `uv run ruff check src` → clean.
 
-Comitted `TODO`.
+Committed `079c6ff`.
 
 ### 50. `.gitignore` excluded `src/k8s_mcp/contexts/kubeconfig.py` from every commit since the repo's initial commit
 

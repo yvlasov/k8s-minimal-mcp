@@ -23,6 +23,37 @@ def deployment_meta():
     )
 
 
+class TestHandleApplyDryRun:
+    """Issue 63: unknown dry_run rejected fail-fast before manifest parse/resolve/subprocess."""
+
+    @patch("src.k8s_mcp.tools.apply.resolve")
+    def test_bad_dry_run_rejected_before_resolve(self, mock_resolve):
+        result = handle_apply("test-context",
+                              manifest='{"apiVersion":"v1","kind":"Pod","metadata":{"name":"t"}}',
+                              dry_run="cleint")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_dry_run"
+        assert result["dry_run"] == "cleint"
+        assert "none, client, server" in result["detail"]
+        mock_resolve.assert_not_called()
+
+    @pytest.mark.parametrize("value", ["none", "client", "server"])
+    @patch("src.k8s_mcp.tools.apply.resolve")
+    @patch("src.k8s_mcp.tools.apply.run_kubectl_checked")
+    def test_documented_dry_run_values_pass(self, mock_run, mock_resolve, value, deployment_meta):
+        mock_resolve.return_value = deployment_meta
+        mock_run.return_value = {"stdout": '{"kind": "Deployment"}'}
+
+        result = handle_apply("test-context",
+                              manifest='{"apiVersion":"apps/v1","kind":"Deployment","metadata":{"name":"t"}}',
+                              namespace="default", dry_run=value)
+
+        assert result.get("error") != "invalid_dry_run"
+        args = mock_run.call_args[0][1]
+        assert ("--dry-run" in args) == (value != "none")
+
+
 class TestHandleApply:
     @patch("src.k8s_mcp.tools.apply.resolve")
     @patch("src.k8s_mcp.tools.apply.run_kubectl_checked")

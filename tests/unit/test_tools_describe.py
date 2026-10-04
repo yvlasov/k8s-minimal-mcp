@@ -171,3 +171,41 @@ class TestHandleDescribeFullyQualifiedResource:
         assert any("NAME:         mypod" in line for line in result["data"]["output"])
         assert any("Namespace:    default" in line for line in result["data"]["output"])
         assert result["data"]["_filtered"]["matched"] == 2
+
+
+class TestHandleDescribeNames:
+    """Issue 56: FR24 `names` branches (shipped in fbf7782 with zero tests)."""
+
+    @patch("src.k8s_mcp.tools.describe.resolve")
+    @patch("src.k8s_mcp.tools.describe.run_kubectl_checked")
+    def test_names_reaches_kubectl_args(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "Name:         p1\nName:         p2\n"}
+
+        result = handle_describe("test-context", "pods", names=["p1", "p2"], namespace="default")
+
+        assert result["success"] is True
+        args = mock_run.call_args[0][1]
+        assert args == ["describe", "pods", "p1", "p2", "-n", "default"]
+
+    @patch("src.k8s_mcp.tools.describe.resolve")
+    @patch("src.k8s_mcp.tools.describe.run_kubectl_checked")
+    def test_neither_name_nor_names_rejected(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+
+        result = handle_describe("test-context", "pods", namespace="default")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_selector"
+        mock_run.assert_not_called()
+
+    @patch("src.k8s_mcp.tools.describe.resolve")
+    @patch("src.k8s_mcp.tools.describe.run_kubectl_checked")
+    def test_name_and_names_both_rejected(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+
+        result = handle_describe("test-context", "pods", name="p1", names=["p2"], namespace="default")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_selector"
+        mock_run.assert_not_called()

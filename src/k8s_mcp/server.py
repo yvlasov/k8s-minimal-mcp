@@ -1,12 +1,13 @@
-"""Server entrypoint (SPEC §4).
+"""Server entrypoint (SPEC §4, as amended per Issue 61).
 
 Startup sequence:
   1. Parse CLI args (--access-level, --allow-namespaces)
-  2. Load core resource table
-  3. Enumerate kubeconfig contexts (kubectl's own default resolution — no --kubeconfig flag)
-  4. Compute allowed verb set from access level
-  5. Register only tools whose verb is in the allowed set (R7)
-  6. Start FastMCP server
+  2. Compute allowed verb set from access level
+  3. register_tools(): register only tools whose verb is allowed (R7) + prompts
+  4. Start FastMCP server
+
+Core table and kubeconfig contexts load lazily (first resolve()/k_list_contexts call) —
+see SPEC §4's lazy-state note.
 
 Namespace allowlist is enforced per-call in tools, not at registration.
 """
@@ -39,9 +40,10 @@ from .tools import (
 
 logger = logging.getLogger("k8s_mcp")
 
-# Open-question flags (PRD §13)
-_SHIP_DESCRIBE = True  # TBD — ship k_describe for now
-_SHIP_EXEC = True      # TBD — ship k_exec at admin for now
+# PRD §13 open questions — both resolved (shipped): see CHANGELOG.md Issue 60 item 10.
+# Flags kept as the reversibility seam SPEC §7 asks for; tools are counted in PRD §12's totals.
+_SHIP_DESCRIBE = True
+_SHIP_EXEC = True
 
 
 def _dispatch(
@@ -84,15 +86,32 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     logger.info("Starting k8s-mcp server (access_level=%s)", access_level.value)
 
-    # Discovery cache (R5)
-    discovery_cache = DiscoveryCache()
-
     # Build FastMCP app
     app = FastMCP(
         name="k8s-minimal-mcp",
         instructions="Minimal verb-based Kubernetes MCP server. All operations require a 'context' parameter.",
     )
 
+    # Register tools + prompts per access level (SPEC §4 steps 5-6)
+    register_tools(app, access_level, DiscoveryCache(), allow_namespaces)
+
+    logger.info("Running FastMCP server...")
+    app.run()
+
+
+def register_tools(
+    app: FastMCP,
+    access_level: AccessLevel,
+    discovery_cache: DiscoveryCache | None,
+    allow_namespaces: list[str] | None,
+) -> None:
+    """Register the MCP tools + prompts on `app`, gated by access level (R7, SPEC §4 steps 5-6).
+
+    Extracted from main() (Issue 56) so tests can reach the registered `@app.tool`
+    wrappers without starting the stdio loop — closing DoD item 1's "or the registered
+    `@app.tool` wrapper" path structurally. `context`/`discovery_cache`/`allow_namespaces`
+    stay explicit — never module-level state (R3).
+    """
     # Register k_list_contexts (always available)
     @app.tool(name="k_list_contexts")
     def list_contexts(context: str = "default") -> dict[str, Any]:
@@ -154,7 +173,7 @@ def main(argv: list[str] | None = None) -> None:
                              grep=grep, grep_ignore_case=grep_ignore_case)
 
     if "apply" in allowed:
-        @app.tool(name="k_apply", description="k_apply: manifest: JSON/YAML manifest to apply (exactly one of manifest or src_file is required); src_file: absolute path to a file containing the manifest; namespace: Namespace for namespaced resources; dry_run: Dry-run mode; output: Output format (json/yaml); jsonpath: JsonPath template — setting this alone is sufficient to enable jsonpath mode and overrides any output value; output='jsonpath' is no longer valid, do not set it)")
+        @app.tool(name="k_apply", description="k_apply: manifest: JSON/YAML manifest to apply (exactly one of manifest or src_file is required); src_file: absolute path to a file containing the manifest; namespace: Namespace for namespaced resources; dry_run: Dry-run mode (none/client/server); output: Output format (json/yaml); jsonpath: JsonPath template — setting this alone is sufficient to enable jsonpath mode and overrides any output value; output='jsonpath' is no longer valid, do not set it)")
         def apply(context: str, manifest: str | None = None, src_file: str | None = None, namespace: str | None = None,
                   dry_run: str = "none", output: str | None = None,
                   jsonpath: str | None = None) -> dict[str, Any]:
@@ -163,7 +182,7 @@ def main(argv: list[str] | None = None) -> None:
                              output=output, jsonpath=jsonpath)
 
     if "patch" in allowed:
-        @app.tool(name="k_patch", description="k_patch: resource: Resource type; name: Resource name to patch; names: List of resource names to patch; patch: JSON patch document; namespace: Namespace; type: Patch type; dry_run: Dry-run mode; output: Output format (json/yaml); jsonpath: JsonPath template — setting this alone is sufficient to enable jsonpath mode and overrides any output value; output='jsonpath' is no longer valid, do not set it)")
+        @app.tool(name="k_patch", description="k_patch: resource: Resource type; name: Resource name to patch; names: List of resource names to patch; patch: JSON patch document; namespace: Namespace; type: Patch type; dry_run: Dry-run mode (none/client/server); output: Output format (json/yaml); jsonpath: JsonPath template — setting this alone is sufficient to enable jsonpath mode and overrides any output value; output='jsonpath' is no longer valid, do not set it)")
         def patch(context: str, resource: str, *, name: str | None = None, names: list[str] | None = None, patch: str,
                   namespace: str | None = None, type: str = "strategic",  # noqa: A002
                   dry_run: str = "none", output: str | None = None,
@@ -174,7 +193,7 @@ def main(argv: list[str] | None = None) -> None:
                              output=output, jsonpath=jsonpath)
 
     if "delete" in allowed:
-        @app.tool(name="k_delete", description="k_delete: resource: Resource type; name: Resource name; names: List of resource names for batch operations; namespace: Namespace; label_selector: Delete all resources matching this label selector; dry_run: Dry-run mode")
+        @app.tool(name="k_delete", description="k_delete: resource: Resource type; name: Resource name; names: List of resource names for batch operations; namespace: Namespace; label_selector: Delete all resources matching this label selector; dry_run: Dry-run mode (none/client/server)")
         def delete(context: str, resource: str, name: str | None = None,
                    names: list[str] | None = None,
                    namespace: str | None = None, label_selector: str | None = None,
@@ -183,7 +202,7 @@ def main(argv: list[str] | None = None) -> None:
                              resource=resource, name=name, names=names, namespace=namespace,
                              label_selector=label_selector, dry_run=dry_run)
 
-    # Conditional: k_describe (PRD §13 open)
+    # Conditional: k_describe (PRD §13 resolved — shipped)
     if _SHIP_DESCRIBE and "describe" in allowed:
         @app.tool(name="k_describe", description="k_describe: resource: Resource type; name: Resource name; names: List of resource names for batch operations; namespace: Namespace; grep: Filter describe output lines by regex; grep_ignore_case: Case-insensitive grep matching")
         def describe(context: str, resource: str, *, name: str | None = None, names: list[str] | None = None,
@@ -193,7 +212,7 @@ def main(argv: list[str] | None = None) -> None:
                              resource=resource, name=name, names=names, namespace=namespace,
                              grep=grep, grep_ignore_case=grep_ignore_case)
 
-    # Conditional: k_exec (admin only, PRD §13 open)
+    # Conditional: k_exec (admin only, PRD §13 resolved — shipped)
     if _SHIP_EXEC and access_level == AccessLevel.ADMIN:
         @app.tool(name="k_exec", description="k_exec: pod: Pod name; command: Command to execute; namespace: Pod namespace; container: Container name")
         def exec_cmd(context: str, pod: str, command: list[str],
@@ -226,9 +245,6 @@ def main(argv: list[str] | None = None) -> None:
     @app.prompt(name="rbac_effective_permissions", description="Check effective RBAC permissions for a user")
     def prompt_rbac_effective_permissions(as_user: str, namespace: str) -> str:
         return rbac_effective_permissions(as_user, namespace)
-
-    logger.info("Running FastMCP server...")
-    app.run()
 
 
 if __name__ == "__main__":

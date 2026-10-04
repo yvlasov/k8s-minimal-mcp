@@ -241,3 +241,106 @@ class TestHandlePatchFullyQualifiedResource:
         assert result["success"] is True
         args = mock_run.call_args[0][1]
         assert args[1] == "deployments.apps"
+
+
+class TestHandlePatchTypeValidation:
+    """Issue 59: `type` enum fail-fast — previously any string reached kubectl's --type."""
+
+    @patch("src.k8s_mcp.tools.patch.resolve")
+    def test_bad_type_rejected_before_resolve(self, mock_resolve):
+        result = handle_patch("test-context", "deployments", "d1",
+                              patch='{"spec": {"replicas": 3}}', type="strategi", namespace="default")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_patch_type"
+        assert result["type"] == "strategi"
+        assert "strategic, merge, json" in result["detail"]
+        mock_resolve.assert_not_called()
+
+    @pytest.mark.parametrize("patch_type", ["strategic", "merge", "json"])
+    @patch("src.k8s_mcp.tools.patch.resolve")
+    @patch("src.k8s_mcp.tools.patch.run_kubectl_checked")
+    def test_documented_types_pass_through_to_args(self, mock_run, mock_resolve, patch_type, deployment_meta):
+        mock_resolve.return_value = deployment_meta
+        mock_run.return_value = {"stdout": '{"kind": "Deployment"}'}
+
+        result = handle_patch("test-context", "deployments", "d1",
+                              patch='{"spec": {"replicas": 3}}', type=patch_type, namespace="default")
+
+        assert result["success"] is True
+        args = mock_run.call_args[0][1]
+        assert args[args.index("--type") + 1] == patch_type
+
+
+class TestHandlePatchDryRun:
+    """Issue 63: unknown dry_run rejected fail-fast before resolve/subprocess (same seam class as Issue 59)."""
+
+    @patch("src.k8s_mcp.tools.patch.resolve")
+    def test_bad_dry_run_rejected_before_resolve(self, mock_resolve):
+        result = handle_patch("test-context", "deployments", "d1",
+                              patch='{"spec": {"replicas": 3}}', dry_run="cleint", namespace="default")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_dry_run"
+        assert result["dry_run"] == "cleint"
+        assert "none, client, server" in result["detail"]
+        mock_resolve.assert_not_called()
+
+    @pytest.mark.parametrize("value", ["none", "client", "server"])
+    @patch("src.k8s_mcp.tools.patch.resolve")
+    @patch("src.k8s_mcp.tools.patch.run_kubectl_checked")
+    def test_documented_dry_run_values_pass(self, mock_run, mock_resolve, value, deployment_meta):
+        mock_resolve.return_value = deployment_meta
+        mock_run.return_value = {"stdout": '{"kind": "Deployment"}'}
+
+        result = handle_patch("test-context", "deployments", "d1",
+                              patch='{"spec": {"replicas": 3}}', dry_run=value, namespace="default")
+
+        assert result.get("error") != "invalid_dry_run"
+        args = mock_run.call_args[0][1]
+        assert ("--dry-run" in args) == (value != "none")
+
+
+class TestHandlePatchNames:
+    """Issue 56: FR24 `names` branches (shipped in fbf7782 with zero tests)."""
+
+    @patch("src.k8s_mcp.tools.patch.resolve")
+    @patch("src.k8s_mcp.tools.patch.run_kubectl_checked")
+    def test_names_reaches_kubectl_args(self, mock_run, mock_resolve, deployment_meta):
+        mock_resolve.return_value = deployment_meta
+        mock_run.return_value = {"stdout": '{"kind": "Deployment", "metadata": {"name": "test"}}'}
+
+        result = handle_patch("test-context", "deployments",
+                              patch='{"spec": {"replicas": 3}}',
+                              names=["d1", "d2"], namespace="default")
+
+        assert result["success"] is True
+        args = mock_run.call_args[0][1]
+        assert args == ["patch", "deployments.apps", "d1", "d2", "-n", "default", "--type", "strategic"]
+
+    @patch("src.k8s_mcp.tools.patch.resolve")
+    def test_neither_name_nor_names_rejected_before_resolve(self, mock_resolve):
+        result = handle_patch("test-context", "deployments",
+                              patch='{"spec": {"replicas": 3}}', namespace="default")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_selector"
+        mock_resolve.assert_not_called()
+
+    @patch("src.k8s_mcp.tools.patch.resolve")
+    def test_name_and_names_both_rejected_before_resolve(self, mock_resolve):
+        result = handle_patch("test-context", "deployments", name="d1",
+                              patch='{"spec": {"replicas": 3}}',
+                              names=["d2"], namespace="default")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_selector"
+        mock_resolve.assert_not_called()
+
+    @patch("src.k8s_mcp.tools.patch.resolve")
+    def test_missing_patch_rejected_before_resolve(self, mock_resolve):
+        result = handle_patch("test-context", "deployments", name="d1", namespace="default")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_selector"
+        mock_resolve.assert_not_called()

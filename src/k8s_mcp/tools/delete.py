@@ -11,10 +11,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..errors import invalid_selector
+from ..errors import invalid_dry_run, invalid_selector
 from ..kubectl.runner import run_kubectl_checked
 from ..output import envelope, prune
 from ..resolution import DiscoveryCache, resolve, validate
+
+# Documented enum for `dry_run` (PRD §6); anything else must not reach kubectl (Issue 63).
+_VALID_DRY_RUNS = ("none", "client", "server")
 
 
 def handle_delete(
@@ -29,6 +32,16 @@ def handle_delete(
     discovery_cache: DiscoveryCache | None = None,
 ) -> dict[str, Any]:
     """Handle a k_delete call."""
+    # Fail-fast: dry_run must be one of the documented enum values (Issue 63)
+    if dry_run not in _VALID_DRY_RUNS:
+        return envelope(
+            invalid_dry_run(
+                context, dry_run,
+                detail=f"dry_run must be one of: {', '.join(_VALID_DRY_RUNS)}",
+            ),
+            context, "k_delete", success=False,
+        )
+
     # Resolve resource → GVK
     res = resolve(context, resource, discovery_cache=discovery_cache)
     if isinstance(res, dict):

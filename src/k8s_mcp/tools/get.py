@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..errors import invalid_jsonpath_template, invalid_output, invalid_selector
+from ..errors import invalid_jsonpath_template, invalid_output, invalid_selector, unexpected_output
 from ..kubectl.runner import run_kubectl_checked
 from ..output import apply_output_format, bound_get_names, envelope, prune
 from ..resolution import DiscoveryCache, resolve, validate
@@ -179,7 +179,7 @@ def handle_get(
         data = json.loads(result["stdout"])
     except json.JSONDecodeError:
         return envelope(
-            {"error": "unexpected kubectl output (not JSON)", "raw": result["stdout"]},
+            unexpected_output(context, raw=result["stdout"]),
             context, "k_get", success=False,
         )
 

@@ -497,3 +497,53 @@ class TestHandleGetGrep:
         assert result["success"] is True
         assert "_filtered" not in result["data"]
         assert "items" in result["data"]
+
+
+class TestHandleGetUnexpectedOutput:
+    """Issue 58: non-JSON stdout on the JSON path returns a §7-shaped error, not prose."""
+
+    @patch("src.k8s_mcp.tools.get.resolve")
+    @patch("src.k8s_mcp.tools.get.run_kubectl_checked")
+    def test_non_json_stdout_returns_unexpected_output(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": "not json at all\n"}
+
+        result = handle_get("test-context", "pods", name="p1", namespace="default")
+
+        assert result["success"] is False
+        assert result["error"] == "unexpected_output"
+        assert result["context"] == "test-context"
+        assert result["raw"] == "not json at all\n"
+
+
+class TestHandleGetNames:
+    """Issue 56: FR24 `names` branches (shipped in fbf7782 with zero tests)."""
+
+    @patch("src.k8s_mcp.tools.get.resolve")
+    @patch("src.k8s_mcp.tools.get.run_kubectl_checked")
+    def test_names_reaches_kubectl_args(self, mock_run, mock_resolve, pod_meta):
+        mock_resolve.return_value = pod_meta
+        mock_run.return_value = {"stdout": '{"items": []}'}
+
+        result = handle_get("test-context", "pods", names=["pod-a", "pod-b"], namespace="default")
+
+        assert result["success"] is True
+        args = mock_run.call_args[0][1]
+        assert args == ["get", "pods", "pod-a", "pod-b", "-n", "default"]
+
+    @patch("src.k8s_mcp.tools.get.resolve")
+    def test_name_and_names_both_rejected_before_resolve(self, mock_resolve):
+        result = handle_get("test-context", "pods", name="pod-a", names=["pod-b"], namespace="default")
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_selector"
+        mock_resolve.assert_not_called()
+
+    @patch("src.k8s_mcp.tools.get.resolve")
+    def test_names_with_all_namespaces_rejected_before_resolve(self, mock_resolve):
+        result = handle_get("test-context", "pods", names=["pod-a"], all_namespaces=True)
+
+        assert result["success"] is False
+        assert result["error"] == "invalid_selector"
+        assert "all_namespaces" in result["detail"]
+        mock_resolve.assert_not_called()

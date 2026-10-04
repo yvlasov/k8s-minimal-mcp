@@ -8,13 +8,16 @@ class that produced Issue 40 (two independent crashes, three commits).
 
 from __future__ import annotations
 
+import importlib
+from contextlib import ExitStack
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
 from src.k8s_mcp.access import AccessLevel
 from src.k8s_mcp.resolution.models import ResourceMeta
-from src.k8s_mcp.server import _dispatch
+from src.k8s_mcp.server import _dispatch, register_tools
 
 
 def _pod_meta() -> ResourceMeta:
@@ -266,3 +269,122 @@ class TestDispatchPathSmoke:
         # here (that's each tool's own test file's job), only that the
         # dispatch→handler chain didn't crash on a kwarg mismatch.
         assert isinstance(result, dict)
+
+
+class _RecordingApp:
+    """Minimal fake of the FastMCP surface `register_tools` uses (Issue 56).
+
+    Records the function object each `@app.tool(name=...)`/`@app.prompt(name=...)`
+    decorator receives, so tests can drive the registered wrappers without
+    starting the stdio loop.
+    """
+
+    def __init__(self) -> None:
+        self.tools: dict[str, Any] = {}
+        self.prompts: dict[str, Any] = {}
+
+    def tool(self, name: str, description: str | None = None):
+        def decorator(fn):
+            self.tools[name] = fn
+            return fn
+
+        return decorator
+
+    def prompt(self, name: str, description: str | None = None):
+        def decorator(fn):
+            self.prompts[name] = fn
+            return fn
+
+        return decorator
+
+
+# The exact registration surface per access level (PRD §12: 6/9/12).
+_EXPECTED_TOOLS: dict[AccessLevel, set[str]] = {
+    AccessLevel.READONLY: {
+        "k_list_contexts", "k_list_resources", "k_get", "k_auth_can_i", "k_logs", "k_describe",
+    },
+    AccessLevel.READWRITE: {
+        "k_list_contexts", "k_list_resources", "k_get", "k_auth_can_i", "k_logs", "k_describe",
+        "k_apply", "k_patch", "k_delete",
+    },
+    AccessLevel.ADMIN: {
+        "k_list_contexts", "k_list_resources", "k_get", "k_auth_can_i", "k_logs", "k_describe",
+        "k_apply", "k_patch", "k_delete", "k_get_helm_release", "k_exec", "k_get_secret_to_file",
+    },
+}
+
+_PROMPT_KWARGS: dict[str, dict] = {
+    "argocd_app_health": {"name": "my-app", "namespace": "argocd"},
+    "cilium_troubleshoot_connectivity": {"cluster": "main", "issue_description": "cannot reach service"},
+    "rbac_effective_permissions": {"as_user": "alice", "namespace": "default"},
+}
+
+# registered tool name -> (handler module path, kwargs matching the wrapper signature)
+_WRAPPER_TARGETS: dict[str, tuple[str, dict]] = {
+    f"k_{verb}": (path, kwargs) for verb, path, kwargs in _TOOL_DEFINITIONS
+}
+_WRAPPER_TARGETS["k_list_contexts"] = ("src.k8s_mcp.tools.contexts.handle_list_contexts", {})
+
+
+class TestRegistrationPerAccessLevel:
+    """Issue 56: the registration surface itself (R7, SPEC §4 step 5) is now testable."""
+
+    @pytest.mark.parametrize(
+        "access_level", list(AccessLevel), ids=[level.value for level in AccessLevel]
+    )
+    def test_exact_tool_set(self, access_level: AccessLevel) -> None:
+        fake = _RecordingApp()
+        register_tools(fake, access_level, None, None)
+        assert set(fake.tools) == _EXPECTED_TOOLS[access_level]
+
+    @pytest.mark.parametrize(
+        "access_level", list(AccessLevel), ids=[level.value for level in AccessLevel]
+    )
+    def test_prompts_registered_unconditionally(self, access_level: AccessLevel) -> None:
+        fake = _RecordingApp()
+        register_tools(fake, access_level, None, None)
+        assert set(fake.prompts) == set(_PROMPT_KWARGS)
+        for name, kwargs in _PROMPT_KWARGS.items():
+            text = fake.prompts[name](**kwargs)
+            assert isinstance(text, str) and text, name
+
+
+class TestRegisteredWrapperDriveThrough:
+    """Issue 56 / DoD item 1: every registered `@app.tool` wrapper, driven as an MCP
+    client would, reaches `_dispatch()` → handler without TypeError.
+
+    Complements `test_dispatch_no_type_error` (which calls `_dispatch()` directly):
+    this exercises each wrapper's own signature → `_dispatch()` kwargs mapping —
+    the seam that the wrappers being nested inside `main()` made untestable
+    (the Issue 40 bug class).
+    """
+
+    @pytest.mark.parametrize(
+        "access_level", list(AccessLevel), ids=[level.value for level in AccessLevel]
+    )
+    def test_every_registered_wrapper_reaches_handler(self, access_level: AccessLevel) -> None:
+        fake = _RecordingApp()
+        register_tools(fake, access_level, None, None)
+
+        for tool_name, wrapper in fake.tools.items():
+            module_path, kwargs = _WRAPPER_TARGETS[tool_name]
+            module = importlib.import_module(module_path.rsplit(".", 1)[0])
+            ok_result = {
+                "stdout": "ok\n", "stderr": "", "returncode": 0,
+                "command": ["kubectl", "test"],
+            }
+            with ExitStack() as stack:
+                stack.enter_context(patch.object(
+                    module, "resolve", return_value=_pod_meta(), create=True))
+                stack.enter_context(patch.object(
+                    module, "run_kubectl", return_value=ok_result, create=True))
+                stack.enter_context(patch.object(
+                    module, "run_kubectl_checked", return_value=ok_result, create=True))
+                stack.enter_context(patch.object(
+                    module, "list_kubeconfig_contexts", return_value=["ctx-a"], create=True))
+                result = wrapper("test-context", **kwargs)
+
+            assert isinstance(result, dict), tool_name
+            assert {"context", "tool", "success"} <= set(result), tool_name
+            assert result["tool"] == tool_name, tool_name
+            assert result["context"] == "test-context", tool_name

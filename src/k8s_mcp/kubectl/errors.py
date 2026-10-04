@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from ..errors import (
     authentication_failed,
+    kubectl_access_denied,
+    kubectl_ambiguous_resource,
     kubectl_failure,
     kubectl_invalid_argument,
     kubectl_unreachable,
@@ -37,11 +39,7 @@ def map_kubectl_error(
     stderr_lower = stderr.lower()
 
     if "ambiguous" in stderr_lower:
-        return {
-            "error": "ambiguous_resource",
-            "context": context,
-            "raw_stderr": stderr,
-        }
+        return kubectl_ambiguous_resource(context=context, raw_stderr=stderr)
 
     if "notfound" in stderr_lower or "not found" in stderr_lower:
         return object_not_found(
@@ -65,11 +63,7 @@ def map_kubectl_error(
         return authentication_failed(context=context, raw_stderr=stderr)
 
     if "forbidden" in stderr_lower or "unauthorized" in stderr_lower:
-        return {
-            "error": "access_denied",
-            "context": context,
-            "raw_stderr": stderr,
-        }
+        return kubectl_access_denied(context=context, raw_stderr=stderr)
 
     if (
         stderr_lower.startswith("error: unknown flag")

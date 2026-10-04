@@ -16,6 +16,7 @@ from typing import Any
 
 from ..errors import (
     file_read_failed,
+    invalid_dry_run,
     invalid_jsonpath_template,
     invalid_manifest,
     invalid_output,
@@ -25,6 +26,9 @@ from ..kubectl.runner import run_kubectl_checked
 from ..output import apply_output_format, envelope, prune
 from ..resolution import DiscoveryCache, resolve, validate
 from ..resolution.jsonpath_validation import check_nested_braces
+
+# Documented enum for `dry_run` (PRD §6); anything else must not reach kubectl (Issue 63).
+_VALID_DRY_RUNS = ("none", "client", "server")
 
 
 def _parse_manifest(manifest: str) -> tuple[dict[str, Any], str | None]:
@@ -127,6 +131,16 @@ def handle_apply(
                     "output=wide has no meaning for k_apply — "
                     "kubectl's -o wide is a get-only list-formatting flag"
                 ),
+            ),
+            context, "k_apply", success=False,
+        )
+
+    # Fail-fast: dry_run must be one of the documented enum values (Issue 63)
+    if dry_run not in _VALID_DRY_RUNS:
+        return envelope(
+            invalid_dry_run(
+                context, dry_run,
+                detail=f"dry_run must be one of: {', '.join(_VALID_DRY_RUNS)}",
             ),
             context, "k_apply", success=False,
         )
