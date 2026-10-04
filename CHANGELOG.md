@@ -11,6 +11,36 @@ Ordered newest-first within each section, matching the order these were actually
 
 ## Defects
 
+### Issue 64 — v0.3.0 release shipped with a stale gitignored `uv.lock`: the next `uv run` re-resolves online and hangs behind the socks proxy — lock-refresh requirement codified in the docs (2026-10-04)
+
+**File:** `KNOWN_ISSUES.md` (DoD item 8), `SPEC.md` (new §9), `README.md` (Testing), `CHANGELOG.md`
+
+**Root cause:** the release commit `797f9c5` bumped `pyproject.toml` to `0.3.0` but left
+`uv.lock` (deliberately gitignored — `.gitignore:45`) pinning `0.2.0`. The MCP host launches the
+server as plain `uv run k8s-mcp --access-level admin` with
+`HTTPS_PROXY=socks5://127.0.0.1:1080`; uv detected the stale lock at startup and tried to
+re-resolve online. The pypi route through that tunnel timed out (`Failed to fetch
+https://pypi.org/simple/ruff/`, `client error (Connect)` after ~47s) — and opencode's ~30s
+handshake budget expired first, so the version-discipline defect surfaced as
+"MCP server: k8s-minimal-mcp — Request timed out" with no cause visible to the user.
+Reproduced exactly (`uv run k8s-mcp --help`: 46.8s + network error before fix; 0.14s after).
+Secondary findings: (a) a plain `uv sync` (without `--extra dev`) prunes the dev tooling from
+the shared `.venv` — run it deliberately, never as a side effect; (b) `uv run --frozen` starts the
+server in ~2s through the same proxy env and full `tools/call` round-trips succeed — verified with
+a live `k_list_contexts` returning 6 contexts.
+
+**Fix:** requirement documented rather than code-enforced (the lock cannot be committed by
+design): Definition-of-Done item 8 (`uv lock` after any version/dependency change, before the
+release commit) and new `SPEC.md` §9 "Release & Version Discipline" — bump → `uv lock` →
+`uv sync --extra dev` → run CI-equivalent gates recording real numbers → annotated tag →
+GitHub release page; MCP hosts configured with `uv run --frozen` so a future stale lock fails
+fast and loudly instead of hanging. README Testing section carries the same warning inline.
+
+**Verification:** docs-only change; the operational fix it codifies was verified live —
+`uv lock --offline` → "Updated k8s-minimal-mcp v0.2.0 -> v0.3.0" (31ms from cache), full MCP
+handshake + `k_list_contexts` round-trip through the exact host command and proxy environment,
+and `uv run --help` at 0.14s under the same env that previously hung for 46.8s.
+
 ### Issue 63 — `dry_run` outside `none`/`client`/`server` passed verbatim into kubectl's `--dry-run` (2026-10-04)
 
 **File:** `tools/apply.py`, `tools/patch.py`, `tools/delete.py`, `errors/core.py`, `errors/__init__.py`, `server.py`, `PRD.md` §6/§7, `tests/unit/test_tools_apply.py`, `test_tools_patch.py`, `test_tools_delete.py`, `test_errors.py`

@@ -965,3 +965,31 @@ the per-tool test cases, one-to-one.
 - **Docs (Definition of Done):** PRD.md §6's Tool Specification table and §12's status count
   updated if RBAC/resources affect tool availability; `KNOWN_ISSUES.md` FEATURE REQUESTS table
   with FR25 row; `CHANGELOG.md` with FR25 entry.
+
+---
+
+## 9. Release & Version Discipline (Issue 64, added 2026-10-04)
+
+`uv.lock` is gitignored by design (`.gitignore` line 45) — it lives only in the local
+environment. Lock freshness is therefore invisible to CI and to reviewers, so the sequence below
+is mandatory on every release (mirrored by Definition-of-Done item 8 in `KNOWN_ISSUES.md`):
+
+1. Bump `version` in `pyproject.toml` (semver: a minor bump covers new error codes, new params,
+   new tools, and stricter parameter validation — the last is a behavior change consumers can
+   observe).
+2. **Immediately after the bump: `uv lock`** (`uv lock --offline` works whenever the wheel cache
+   is warm — a version-only change touches nothing but the root entry). A stale lock makes the
+   next plain `uv run` attempt an online re-resolution at startup; behind
+   `HTTPS_PROXY=socks5://…` (how the MCP host reaches the clusters) that fetch hangs and opencode
+   reports only "MCP server: k8s-minimal-mcp — Request timed out". This exact failure shipped with
+   the v0.3.0 release and is the reason for this section.
+3. `uv sync --extra dev` — keeps the dev group (pytest-cov, ruff, mypy, pytest-mock) installed;
+   the tooling that runs the gates.
+4. Run the CI-equivalent gates locally and record actual numbers in the CHANGELOG entry
+   (Definition-of-Done item 6): `pytest -q --cov=src --cov-report=term-missing
+   --cov-fail-under=90`, `ruff check src tests`, `mypy src`.
+5. Annotated tag `vX.Y.Z` on the release commit, message starting `Release X.Y.Z: <summary>`;
+   publish the GitHub Release page with notes derived from the CHANGELOG section.
+6. MCP host configs (e.g. opencode `mcp.servers.k8s-minimal-mcp`) should start the server via
+   `uv run --frozen` — freshness is validated against the lockfile without ever hitting the
+   network, so a future stale lock fails fast and loudly instead of hanging.

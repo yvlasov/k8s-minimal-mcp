@@ -94,6 +94,25 @@ Set `$KUBECONFIG` before starting the server if you need a non-default file.
 }
 ```
 
+**Via `uv run` on a local clone** (development host, e.g. opencode):
+
+```json
+{
+  "mcpServers": {
+    "k8s-minimal-mcp": {
+      "command": "uv",
+      "args": ["run", "--frozen", "k8s-mcp", "--access-level", "admin"],
+      "cwd": "/path/to/k8s-minimal-mcp"
+    }
+  }
+}
+```
+
+Keep the `--frozen`: `uv.lock` is gitignored, so a stale lock after a version/dependency change
+makes plain `uv run` re-resolve online at startup — behind a proxy that surfaces as a silent
+"MCP request timed out" in the client instead of a clear error. Run `uv lock` after changing
+`pyproject.toml` (`SPEC.md` §9 / Issue 64).
+
 ## Available Tools
 
 | Tool | Description | Access Level |
@@ -126,6 +145,10 @@ Core resources (pods, deployments, services, etc.) resolve from a static table. 
 ## Testing
 
 ```bash
+# After ANY version/dependency change in pyproject.toml (uv.lock is gitignored — SPEC §9):
+#   uv lock && uv sync --extra dev
+# A stale lock makes the next `uv run` re-resolve online — and behind HTTPS_PROXY=socks5://
+# that hang surfaces as a silent MCP "Request timed out" (Issue 64).
 uv sync --extra dev
 PYTHONPATH=. uv run pytest -v
 uv run mypy src

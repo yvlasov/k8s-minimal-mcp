@@ -30,6 +30,13 @@ implemented" label written before it was actually true). A Status line may not c
    above all being satisfied each time. `KNOWN_ISSUES.md`'s FIXED table explicitly promises
    "full detail... in `CHANGELOG.md`" for every row — a fix commit is not done until that
    promise is true for its own row, not left for the next review pass to notice and backfill.
+8. **`uv lock` was run after any `pyproject.toml` version/dependency change** (added 2026-10-04
+   after the v0.3.0 release — Issue 64). `uv.lock` is intentionally gitignored (`.gitignore`), so a
+   stale lock is invisible to CI and reviewers: the next plain `uv run` startup re-resolves online,
+   and with the MCP host's `HTTPS_PROXY=socks5://…` that hang surfaces as a silent "Request timed
+   out" in the client, not as the version-discipline error it is. Run `uv lock && uv sync --extra
+   dev` before the release commit; MCP hosts should start the server with `uv run --frozen` so a
+   future stale lock fails instantly instead of hanging (SPEC §9 is the full procedure).
 
 | FR | Feature | Status | Spec |
 |---|---|---|---|
@@ -107,9 +114,10 @@ plan.
 ## OPEN (not yet fixed)
 
 Issues 56-61 were fixed 2026-10-04 and moved to the FIXED table (full root cause/fix/tests/
-verification history in `CHANGELOG.md`). Issue 63 (`dry_run` enum, found while implementing
-Issue 59) was filed and fixed the same day per the user's decision and recorded directly in
-FIXED/CHANGELOG.
+verification history in `CHANGELOG.md`). Issues 63 (`dry_run` enum, found while implementing
+Issue 59) and 64 (stale-gitignored-`uv.lock` release hazard — the docs requirement this session's
+release exposed) were filed and fixed the same day per the user's decisions and recorded directly
+in FIXED/CHANGELOG.
 
 | # | Title | File(s) |
 |---|---|---|
@@ -241,6 +249,7 @@ in `CHANGELOG.md`.
 
 | # | Title | File(s) |
 |---|---|---|
+| 64 | v0.3.0 released with `pyproject` bumped but gitignored `uv.lock` left at 0.2.0 — next `uv run` re-resolves online, hangs behind the socks proxy, presents as MCP "Request timed out"; DoD item 8 + SPEC §9 codify `uv lock` before the release commit and `uv run --frozen` for MCP hosts | `KNOWN_ISSUES.md`, `SPEC.md`, `README.md`, `CHANGELOG.md` |
 | 63 | `dry_run` outside `none`/`client`/`server` passed verbatim into kubectl `--dry-run` on `k_apply`/`k_patch`/`k_delete` — no fail-fast enum check (found while implementing Issue 59) | `tools/apply.py`, `tools/patch.py`, `tools/delete.py`, `errors/core.py`, `errors/__init__.py`, `server.py`, `PRD.md` §6/§7, `test_tools_apply.py`, `test_tools_patch.py`, `test_tools_delete.py`, `test_errors.py` |
 | 61 | SPEC §4's startup sequence never matched the shipped lazy behavior — spec amended to code reality (docs-only, user decision 2026-10-04) | `SPEC.md`, `server.py` (docstring) |
 | 60 | Docs-drift cluster (12 spots + 1 found during the sweep) from the 2026-10-04 review — stale FR24 status (three-way inconsistent), stale Issue-43 notes, wrong Issue-53 file list, stale FR25 shortnames, 4 unfilled placeholder hashes, missing CHANGELOG entry for `3d98645`, PRD §12 undated / §13 unchecked, "6 vs 7 error codes", README staleness | `SPEC.md`, `PRD.md`, `README.md`, `CHANGELOG.md`, `KNOWN_ISSUES.md`, `server.py`, `tools/describe.py` |
