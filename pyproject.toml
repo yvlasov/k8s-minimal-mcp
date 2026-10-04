@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "k8s-minimal-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "Minimal verb-based Kubernetes MCP server"
 readme = "PRD.md"
 requires-python = ">=3.11"
