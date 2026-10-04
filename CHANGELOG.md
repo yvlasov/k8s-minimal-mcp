@@ -33,8 +33,9 @@ parametrized `none`/`client`/`server` pass-through asserting `--dry-run` presenc
 `none`; `test_errors.py` helper shape.
 
 **Verification:** 472 passed, 9 skipped; coverage 94.88% ≥ 90 gate; `ruff check src tests` and
-`mypy src` clean (all measured 2026-10-04). Filed-and-fixed same day by user decision; no
-commit hash yet — work staged on top of `4fac0f5`, commit on request.
+`mypy src` clean (all measured 2026-10-04). Filed-and-fixed same day by user decision.
+
+Committed `2198e40`.
 
 ### Issue 61 — SPEC §4's startup sequence never matched the shipped lazy behavior; spec amended (2026-10-04)
 
@@ -53,6 +54,8 @@ errors already carry the full valid-context list via `unknown_context`); `server
 docstring aligned to the same sequence.
 
 **Verification:** docs + docstring only; final run 472 passed, 9 skipped, gates green.
+
+Committed `2198e40`.
 
 ### Issue 60 — docs-drift sweep: 12 review spots + 1 found during the sweep (2026-10-04)
 
@@ -92,6 +95,8 @@ correction below was verified against `git show`/grep of the cited file or commi
 **Verification:** 462 passed, 9 skipped; coverage 94.82%; `ruff check src tests` and `mypy src`
 clean before/after the sweep.
 
+Committed `2198e40`.
+
 ### Issue 59 — `k_patch`'s `type` enum validated nowhere; arbitrary strings reached kubectl's `--type` (2026-10-04)
 
 **File:** `tools/patch.py`, `errors/core.py`, `errors/__init__.py`, `PRD.md` §6/§7, `tests/unit/test_tools_patch.py`, `test_errors.py`
@@ -108,6 +113,8 @@ fail-fast-before-subprocess pattern every other param follows.
 documented values parametrized through to `--type` verbatim; helper shape in `test_errors.py`.
 
 **Verification:** 462 passed, 9 skipped; coverage gate green; ruff/mypy clean.
+
+Committed `2198e40`.
 
 ### Issue 58 — three ad-hoc error dicts violated SPEC §6's helpers-only rule (2026-10-04)
 
@@ -129,6 +136,8 @@ routed through helpers; PRD §7 gained `unexpected_output`; exports sorted to ke
 **unchanged**, confirming response shapes were preserved.
 
 **Verification:** 458 passed, 9 skipped; gates green.
+
+Committed `2198e40`.
 
 ### Issue 57 — `contexts/kubeconfig.py` bypassed the runner's single-subprocess seam (2026-10-04)
 
@@ -152,6 +161,8 @@ error pass-through); `test_tools_contexts.py` asserts context forwarding (was no
 **Verification:** live smoke: `list_kubeconfig_contexts("sinsia-pl")` → 6 real contexts through
 the runner; `grep subprocess src/k8s_mcp` → only `kubectl/runner.py`. 454 passed, 9 skipped;
 gates green.
+
+Committed `2198e40`.
 
 ### Issue 56 — coverage gate red at HEAD: FR24 shipped untested + `@app.tool` wrappers unreachable inside `main()` (2026-10-04)
 
@@ -189,6 +200,8 @@ items edges).
 **Verification:** at landing 454 passed, 9 skipped; coverage **94.69%** with the threshold
 unchanged; `ruff check src tests` + `mypy src` clean. Session final: 472 passed, 9 skipped,
 94.88%.
+
+Committed `2198e40`.
 
 ### Issue 54 — Code-quality audit: test-suite lint debt + no coverage gate + version drift + Issue 53 number de-conflicted (2026-10-02)
 
