@@ -41,6 +41,8 @@ fast and loudly instead of hanging. README Testing section carries the same warn
 handshake + `k_list_contexts` round-trip through the exact host command and proxy environment,
 and `uv run --help` at 0.14s under the same env that previously hung for 46.8s.
 
+Committed `f452384`.
+
 ### Issue 63 — `dry_run` outside `none`/`client`/`server` passed verbatim into kubectl's `--dry-run` (2026-10-04)
 
 **File:** `tools/apply.py`, `tools/patch.py`, `tools/delete.py`, `errors/core.py`, `errors/__init__.py`, `server.py`, `PRD.md` §6/§7, `tests/unit/test_tools_apply.py`, `test_tools_patch.py`, `test_tools_delete.py`, `test_errors.py`
